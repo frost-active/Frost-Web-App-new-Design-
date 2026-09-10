@@ -240,7 +240,16 @@ let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=fal
 let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
 let liveConfigSynced=false;
+let syncedConfigAvailable=false;
 let device=snapshot();   // what Aura holds
+
+function syncedCategories(){
+  if(!syncedConfigAvailable)return [];
+  return CATS.map(category=>{
+    const saved=device.find(item=>item.k===category.k);
+    return saved?{...category,on:saved.on,dur:saved.dur,times:[...saved.times]}:null;
+  }).filter(Boolean);
+}
 
 window.addEventListener('frost-device-config',event=>{
   if(liveConfigSynced)return;
@@ -252,9 +261,14 @@ window.addEventListener('frost-device-config',event=>{
   CATS=buildActiveCategories(RAW);
   syncPomo();
   device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
+  syncedConfigAvailable=true;
   if(page==='configure')renderConfigure();
   if(page==='stats')renderStats();
   if(page==='device')renderDevice();
+});
+window.addEventListener('frost-device-config-saved',()=>{
+  syncedConfigAvailable=true;
+  if(page==='stats')renderStats();
 });
 
 const NS='http://www.w3.org/2000/svg';
@@ -774,14 +788,28 @@ function ackTier(rate){return rate>=.75?{c:cvar('--mint')} : rate>=.45?{c:cvar('
 function renderAckPanel(){
   const panel=document.getElementById('ackPanel'),lbl=document.getElementById('ackRangeLbl');
   if(!panel||!lbl)return;
-  const active=CATS.filter(c=>c.on);
+  const active=syncedCategories().filter(c=>c.on);
   if(range==='day'){
-    lbl.textContent='every reminder today'; const rows=[];
-    active.forEach(c=>c.times.forEach((h,i)=>{const upcoming=h>=NOW_H,ack=upcoming?null:occAck(c.k,i,0);rows.push({h,col:cvar(c.color),name:c.label,sub:c.labels&&c.labels[i],upcoming,ack});}));
-    rows.sort((a,b)=>a.h-b.h);
-    if(!rows.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
-    const chips=active.map(c=>{const due=c.times.filter(h=>h<NOW_H).length;if(!due)return null;const acked=c.times.map((h,i)=>h<NOW_H&&occAck(c.k,i,0)).filter(Boolean).length;const tier=ackTier(acked/due);return `<div class="ackChip" style="--tc:${tier.c};--cc:${cvar(c.color)}"><span class="catdot"></span><span class="nm">${c.label}</span><span class="pct">${Math.round(acked/due*100)}%</span></div>`;}).filter(Boolean).join('');
-    panel.innerHTML=(chips?`<div class="ackChips">${chips}</div>`:'')+`<div class="ackList">${rows.map(r=>{const st=r.upcoming?'up':r.ack?'ack':'miss',icon=r.upcoming?UP_SVG:r.ack?CHECK_SVG:MISS_SVG,label=r.upcoming?'Upcoming':r.ack?'Acknowledged':'Missed';return `<div class="ackRow" style="--c:${r.col}"><span class="dot"></span><span class="t">${fmt(r.h)}</span><span class="nm">${r.name}${r.sub?`<small>${esc(r.sub)}</small>`:''}</span><span class="ackStatus ${st}">${icon}${label}</span></div>`;}).join('')}</div>`;
+    lbl.textContent='today, by category';
+    if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
+    const html=`<div class="ackGridWrap"><div class="ackGrid">
+      ${active.map(c=>{
+        const col=cvar(c.color); let due=0,acked=0;
+        const cells=c.times.map((h,i)=>{
+          const sub=(c.labels&&c.labels[i])?c.labels[i]:null;
+          const upcoming=h>=NOW_H, nameBit=sub?`${c.label} — ${sub}`:c.label;
+          if(upcoming)return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · upcoming"><i class="upcoming" style="--c:${col}"></i></span>`;
+          due++; const ack=occAck(c.k,i,0); if(ack)acked++;
+          return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · ${ack?'acknowledged':'missed'}"><i style="--c:${col};opacity:${ack?1:.15}"></i></span>`;
+        }).join('');
+        const rate=due?acked/due:null, mix=rate==null?0:(15+rate*70).toFixed(0);
+        const pct=rate==null
+          ? `<span class="ackPct"><span class="pill" style="--bg:var(--panel2);color:var(--muted)">—</span></span>`
+          : `<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${Math.round(rate*100)}%</span></span>`;
+        return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pct}</div>`;
+      }).join('')}
+    </div></div>`;
+    panel.innerHTML=html;
     return;
   }
   const n=range==='week'?7:30; lbl.textContent=range==='week'?'last 7 days, by category':'last 30 days, by category';

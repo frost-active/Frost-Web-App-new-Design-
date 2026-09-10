@@ -222,7 +222,7 @@
   .ackPct{display:table-cell;vertical-align:middle;padding-left:6px}.ackPct .pill{display:inline-flex;align-items:center;justify-content:center;min-width:38px;padding:3px 7px;border-radius:99px;font:800 11px Syne;color:var(--ink);background:var(--bg)}
   .ackGridWrap{overflow-x:auto;margin-top:6px;padding-bottom:2px}.ackGrid{display:table;border-collapse:separate;border-spacing:0 6px}.ackGridRow{display:table-row}
   .ackGridRow .lbl{display:table-cell;vertical-align:middle;padding-right:10px;position:sticky;left:0;background:var(--panel);font-size:11.5px;white-space:nowrap;min-width:88px}
-  .ackGridRow .lbl .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}.ackCell{display:table-cell;vertical-align:middle;padding:0 3px}.ackCell i{display:block;width:14px;height:14px;border-radius:4px;background:var(--c)}
+  .ackGridRow .lbl .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}.ackCell{display:table-cell;vertical-align:middle;padding:0 3px}.ackCell i{display:block;width:14px;height:14px;border-radius:4px;background:var(--c)}.ackCell i.upcoming{background:none;border:1.5px dashed var(--c);opacity:.55;box-sizing:border-box}
   .ackDays{display:table-row}.ackDays .lbl{background:transparent}.ackDays span{display:table-cell;text-align:center;font-size:9px;color:var(--muted);padding:0 3px;min-width:14px}
 
   /* ---------- DEVICE ---------- */

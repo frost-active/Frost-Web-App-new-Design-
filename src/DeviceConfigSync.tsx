@@ -43,6 +43,7 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
     const currentResult = results[0];
     const historyResult = results[1];
     if (currentResult.status === 'rejected') throw currentResult.reason;
+    window.dispatchEvent(new CustomEvent('frost-device-config-saved'));
     if (historyResult.status === 'rejected') {
       console.error('Unable to save the FROST device configuration history.', historyResult.reason);
     }
