@@ -31,5 +31,11 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == uid;
       }
     }
+
+    match /devices/{mac}/statistics/{date} {
+      allow read, write: if request.auth != null
+        && exists(/databases/$(db)/documents/deviceBindings/$(mac))
+        && get(/databases/$(db)/documents/deviceBindings/$(mac)).data.boundUid == request.auth.uid;
+    }
   }
 }

@@ -198,6 +198,7 @@
   .bars .b i{border-radius:3px 3px 0 0;min-height:2px;display:block;background:var(--teal)}
   .bars .b.hi i{background:var(--sky)} .bars .b.low i{background:rgba(230,241,248,.14)}
   .xlab{display:flex;gap:4px;margin-top:7px} .xlab span{flex:1;text-align:center;font-size:9.5px;color:var(--muted)}
+  .stats-actions{display:flex;align-items:center;gap:10px;margin-top:10px;min-height:32px}.stats-actions .muted{font-size:11px}
   .hydration-goal label{display:flex;justify-content:space-between;align-items:center}
   .hydration-goal label output{font:700 13px Syne;color:var(--mint);letter-spacing:0;text-transform:none}
   .hydration-goal input[type=range]{display:block;width:100%;margin:8px 0 4px;accent-color:var(--mint);cursor:pointer}

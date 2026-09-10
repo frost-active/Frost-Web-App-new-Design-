@@ -3,6 +3,7 @@ import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
 import { saveDeviceConfig } from './DeviceConfigSync';
+import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<div class="wrap">
   <header>
     <div class="logo">FROST<span>·</span></div>
@@ -66,6 +67,7 @@ const frostMarkup = String.raw`<div class="wrap">
       <button data-r="week" aria-pressed="false">Week</button>
       <button data-r="month" aria-pressed="false">Month</button>
     </div>
+    <div class="stats-actions"><button class="btn" id="statsSync" type="button">Sync statistics</button><span class="muted" id="statsSyncStatus"></span></div>
     <div class="statgrid">
       <div class="card" style="text-align:center">
         <h2 style="text-align:left">Adherence</h2>
@@ -241,6 +243,8 @@ let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
+let storedStatistics:DeviceStatistics[]=[];
+let statisticsUnsubscribe:()=>void=()=>undefined;
 let device=snapshot();   // what Aura holds
 
 function syncedCategories(){
@@ -263,13 +267,18 @@ window.addEventListener('frost-device-config',event=>{
   device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
   syncedConfigAvailable=true;
   if(page==='configure')renderConfigure();
-  if(page==='stats')renderStats();
   if(page==='device')renderDevice();
 });
 window.addEventListener('frost-device-config-saved',()=>{
   syncedConfigAvailable=true;
   if(page==='stats')renderStats();
 });
+window.addEventListener('frost-device-mac',event=>{
+  const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
+  statisticsUnsubscribe();
+  statisticsUnsubscribe=subscribeDeviceStatistics(mac??null,(records)=>{storedStatistics=records;});
+});
+window.addEventListener('frost-device-disconnected',()=>{statisticsUnsubscribe();statisticsUnsubscribe=()=>undefined;storedStatistics=[];});
 
 const NS='http://www.w3.org/2000/svg';
 const E=(n,a={})=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
@@ -819,6 +828,28 @@ function renderAckPanel(){
 }
 function renderStats(){ringChart();kpis();digest();renderAckPanel();}
 
+function renderStoredStatistics(){
+  const current=storedStatistics[storedStatistics.length-1];
+  if(!current)return;
+  const rangeRecords=range==='day'?storedStatistics.slice(-1):storedStatistics.slice(range==='week'?-7:-30);
+  const total=(key:'hyd_ack'|'hyd_miss'|'str_ack'|'str_miss'|'eye_ack'|'eye_miss'|'walk_ack'|'walk_miss'|'medit_ack'|'medit_miss')=>rangeRecords.reduce((sum,record)=>sum+Number(record[key]||0),0);
+  const totalDue=total('hyd_ack')+total('hyd_miss');
+  const rangeLbl=document.getElementById('rangeLbl'); if(rangeLbl)rangeLbl.textContent=range==='day'?'today':range==='week'?'last 7 days':'last 30 days';
+  const ackPanel=document.getElementById('ackPanel'); if(ackPanel)ackPanel.innerHTML=`<div class="stats-record"><b>${rangeRecords.length}</b> synced day${rangeRecords.length===1?'':'s'} · <b>${total('hyd_ack')+total('str_ack')+total('eye_ack')+total('walk_ack')+total('medit_ack')}</b> acknowledged · <b>${total('hyd_miss')+total('str_miss')+total('eye_miss')+total('walk_miss')+total('medit_miss')}</b> missed</div>`;
+  const kpi=document.getElementById('kpi'); if(kpi)kpi.innerHTML=`<div class="k"><div class="txt"><p>Hydration</p><b>${current.hyd_ml}<small> ml</small></b><small class="sub">goal ${current.hyd_goal_ml} ml</small></div></div><div class="k"><div class="txt"><p>Goal completion</p><b>${totalDue?Math.round(total('hyd_ack')/totalDue*100):0}%</b><small class="sub">synced records</small></div></div><div class="k"><div class="txt"><p>Medication</p><b>${current.med_ack}/${current.med_miss}</b><small class="sub">acknowledged / missed</small></div></div><div class="k"><div class="txt"><p>Custom</p><b>${current.cust_ack}/${current.cust_miss}</b><small class="sub">acknowledged / missed</small></div></div>`;
+  const bars=document.getElementById('waterBars'); if(bars)bars.innerHTML=rangeRecords.map(record=>`<div class="b ${record.hyd_ml>=record.hyd_goal_ml?'hi':''}"><i style="height:${Math.min(96,Math.max(2,record.hyd_ml/Math.max(record.hyd_goal_ml,1)*96))}px" title="${record.date}: ${record.hyd_ml} ml"></i></div>`).join('');
+  const labels=document.getElementById('waterLab'); if(labels)labels.innerHTML=rangeRecords.map(record=>`<span>${record.date.slice(5)}</span>`).join('');
+}
+
+async function syncStatistics(mode:'today'|'history'='today'){
+  const status=document.getElementById('statsSyncStatus'), button=document.getElementById('statsSync') as HTMLButtonElement|null;
+  if(!bleClient?.isConnected||!deviceMac){toast('Connect a FROST Aura device first');return;}
+  if(button)button.disabled=true; if(status)status.textContent='Syncing…';
+  try{storedStatistics=await syncDeviceStatistics(bleClient,deviceMac,mode);if(status)status.textContent='Synced from device';if(page==='stats'){renderStats();}}
+  catch(error){if(status)status.textContent='Sync failed';toast(error instanceof Error?error.message:'Statistics sync failed');}
+  finally{if(button)button.disabled=false;}
+}
+
 /* ================= DEVICE ================= */
 /* write the clock's current times/durations back into the device schema */
 function toDeviceJSON(){
@@ -1016,10 +1047,11 @@ function show(p){
   ['configure','stats','device','settings'].forEach(x=>document.getElementById('page-'+x).classList.toggle('hide',x!==p));
   document.getElementById('gridtog').classList.toggle('hide',p!=='configure');
   if(p==='configure')renderConfigure();
-  if(p==='stats')renderStats();
+  if(p==='stats'){renderStats();}
   if(p==='device')renderDevice();
 }
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)show(b.dataset.p);});
+document.getElementById('statsSync').addEventListener('click',()=>syncStatistics(range==='day'?'today':'history'));
 document.getElementById('rangeCtl').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#rangeCtl button').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');range=b.dataset.r;renderStats();});
 document.getElementById('gridtog').addEventListener('click',e=>{grid=!grid;e.currentTarget.classList.toggle('on',grid);e.currentTarget.setAttribute('aria-pressed',grid);drawClock();});
