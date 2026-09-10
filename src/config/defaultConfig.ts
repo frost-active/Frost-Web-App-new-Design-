@@ -1,7 +1,7 @@
 export const defaultConfig = {
   _meta: { schema_ver: 6, device: 'FROST' },
   reminders: {
-    hydration: { enabled: true, mode: 'absolute', interval_ms: 3600000, display_ms: 60000, require_ack: true, start_hour: 0, start_min: 0, end_hour: 23, end_min: 59, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], abs: { times: [{ h: 12, m: 13 }] } },
+    hydration: { enabled: true, mode: 'absolute', interval_ms: 3600000, display_ms: 60000, require_ack: true, goal_ml: 2000, start_hour: 0, start_min: 0, end_hour: 23, end_min: 59, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], abs: { times: [{ h: 12, m: 13 }] } },
     stretch: { enabled: true, mode: 'absolute', interval_ms: 3600000, display_ms: 60000, require_ack: true, start_hour: 0, start_min: 0, end_hour: 23, end_min: 59, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], abs: { times: [{ h: 12, m: 14 }] } },
     eye: { enabled: true, mode: 'absolute', interval_ms: 2700000, display_ms: 60000, require_ack: true, start_hour: 0, start_min: 0, end_hour: 23, end_min: 59, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], abs: { times: [{ h: 12, m: 15 }] } },
     walk: { enabled: true, mode: 'absolute', interval_ms: 7200000, display_ms: 60000, require_ack: true, start_hour: 0, start_min: 0, end_hour: 23, end_min: 59, days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], abs: { times: [{ h: 12, m: 16 }] } },

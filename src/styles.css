@@ -198,6 +198,32 @@
   .bars .b i{border-radius:3px 3px 0 0;min-height:2px;display:block;background:var(--teal)}
   .bars .b.hi i{background:var(--sky)} .bars .b.low i{background:rgba(230,241,248,.14)}
   .xlab{display:flex;gap:4px;margin-top:7px} .xlab span{flex:1;text-align:center;font-size:9.5px;color:var(--muted)}
+  .hydration-goal label{display:flex;justify-content:space-between;align-items:center}
+  .hydration-goal label output{font:700 13px Syne;color:var(--mint);letter-spacing:0;text-transform:none}
+  .hydration-goal input[type=range]{display:block;width:100%;margin:8px 0 4px;accent-color:var(--mint);cursor:pointer}
+  .range-scale{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
+
+  /* ---- Acknowledgements: day list ---- */
+  .ackList{max-height:360px;overflow-y:auto;margin-top:4px}
+  .ackRow{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--faint)}
+  .ackRow:last-child{border-bottom:0}
+  .ackRow .dot{width:9px;height:9px;border-radius:50%;background:var(--c);flex:none}
+  .ackRow .t{width:64px;flex:none;font:700 12px Syne;color:var(--muted)}
+  .ackRow .nm{flex:1;font-size:12.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ackRow .nm small{display:block;color:var(--muted);font-size:10.5px;margin-top:1px}
+  .ackStatus{flex:none;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600}
+  .ackStatus.ack{color:var(--mint)} .ackStatus.miss{color:var(--err)} .ackStatus.up{color:var(--muted);font-weight:500}
+  .ackStatus svg{width:14px;height:14px}
+  .ackEmpty{padding:20px 4px;text-align:center;color:var(--muted);font-size:12.5px}
+  .ackChips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--faint)}
+  .ackChip{display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid color-mix(in srgb,var(--tc) 45%,transparent);border-radius:99px;padding:5px 10px 5px 6px;font-size:11px}
+  .ackChip .catdot{width:7px;height:7px;border-radius:50%;background:var(--cc);flex:none}
+  .ackChip .nm{color:var(--ink);font-weight:500}.ackChip .pct{font:800 11px Syne;color:var(--tc)}
+  .ackPct{display:table-cell;vertical-align:middle;padding-left:6px}.ackPct .pill{display:inline-flex;align-items:center;justify-content:center;min-width:38px;padding:3px 7px;border-radius:99px;font:800 11px Syne;color:var(--ink);background:var(--bg)}
+  .ackGridWrap{overflow-x:auto;margin-top:6px;padding-bottom:2px}.ackGrid{display:table;border-collapse:separate;border-spacing:0 6px}.ackGridRow{display:table-row}
+  .ackGridRow .lbl{display:table-cell;vertical-align:middle;padding-right:10px;position:sticky;left:0;background:var(--panel);font-size:11.5px;white-space:nowrap;min-width:88px}
+  .ackGridRow .lbl .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:6px}.ackCell{display:table-cell;vertical-align:middle;padding:0 3px}.ackCell i{display:block;width:14px;height:14px;border-radius:4px;background:var(--c)}
+  .ackDays{display:table-row}.ackDays .lbl{background:transparent}.ackDays span{display:table-cell;text-align:center;font-size:9px;color:var(--muted);padding:0 3px;min-width:14px}
 
   /* ---------- DEVICE ---------- */
   .drow{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--faint)}

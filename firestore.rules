@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{db}/documents {
+    // Existing global device binding records keep the app's boundUid schema.
+    match /deviceBindings/{bindingId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && !exists(/databases/$(db)/documents/deviceBindings/$(bindingId))
+        && request.resource.data.boundUid == request.auth.uid
+        && request.resource.data.boundEmail == request.auth.token.email
+        && request.resource.data.macAddress is string
+        && request.resource.data.boundUid is string
+        && request.resource.data.boundEmail is string
+        && request.resource.data.boundAt == request.time;
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      match /devices/{macId}/configs/{configId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /devices/{macId}/configHistory/{historyId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+  }
+}

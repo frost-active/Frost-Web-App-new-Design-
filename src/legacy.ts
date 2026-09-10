@@ -2,6 +2,7 @@
 import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
+import { saveDeviceConfig } from './DeviceConfigSync';
 const frostMarkup = String.raw`<div class="wrap">
   <header>
     <div class="logo">FROST<span>·</span></div>
@@ -78,6 +79,10 @@ const frostMarkup = String.raw`<div class="wrap">
           <div class="bars" id="waterBars"></div><div class="xlab" id="waterLab"></div></div>
       </div>
     </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Acknowledgements <span class="r" id="ackRangeLbl">every reminder today</span></h2>
+      <div id="ackPanel"></div>
+    </div>
   </section>
 
   <!-- ============ DEVICE ============ -->
@@ -113,7 +118,7 @@ const frostMarkup = String.raw`<div class="wrap">
 
 <button class="aura-fab" id="auraFab" aria-label="Open Aura assistant"><span class="spark">✦</span></button>`;
 
-export function mountFrost(root: HTMLElement, authenticatedUser?: {displayName?: string|null; email?: string|null; photoURL?: string|null}) {
+export function mountFrost(root: HTMLElement, authenticatedUser?: {displayName?: string|null; email?: string|null; photoURL?: string|null; uid?: string}) {
   root.innerHTML = frostMarkup;
 
 /* ================= shared state ================= */
@@ -143,7 +148,7 @@ function buildCATS(J){
       type:'win', mode:R.hydration.mode==='interval'?'interval':'fixed', on:R.hydration.enabled,
       from:R.hydration.start_hour+R.hydration.start_min/60, to:R.hydration.end_hour+R.hydration.end_min/60,
       every:R.hydration.interval_ms/3600000, dur:R.hydration.display_ms/60000,
-      times:winTimes(R.hydration.abs.times), days:dayNums(R.hydration.days), goal:2000 },
+      times:winTimes(R.hydration.abs.times), days:dayNums(R.hydration.days), goal:Number.isFinite(Number(R.hydration.goal_ml))?Math.min(6000,Math.max(0,Number(R.hydration.goal_ml))):2000 },
     { ...reminderDefinitions.meds, k:'meds', label:reminderDefinitions.meds.label, color:reminderDefinitions.meds.color, src:'medication', type:'ev', on:R.medication.enabled,
       lock:true, snooze:R.medication.snooze_min, dur:R.medication.display_ms/60000,
       groups:R.medication.medicines.map(m=>({name:m.label,times:m.doses.map(d=>d.h+d.m/60),days:dayNums(m.days),start:m.start,end:m.end,enabled:m.enabled})) },
@@ -233,7 +238,24 @@ function buildPomoLaps(){
 }
 let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false;
 let bleClient: FrostBleClient|null=null;
+let deviceMac:string|null=null;
+let liveConfigSynced=false;
 let device=snapshot();   // what Aura holds
+
+window.addEventListener('frost-device-config',event=>{
+  if(liveConfigSynced)return;
+  const saved=(event as CustomEvent<{config?: typeof defaultConfig}>).detail?.config;
+  if(!saved)return;
+  const restored=structuredClone(saved);
+  Object.keys(RAW).forEach(key=>delete RAW[key]);
+  Object.assign(RAW,restored);
+  CATS=buildActiveCategories(RAW);
+  syncPomo();
+  device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
+  if(page==='configure')renderConfigure();
+  if(page==='stats')renderStats();
+  if(page==='device')renderDevice();
+});
 
 const NS='http://www.w3.org/2000/svg';
 const E=(n,a={})=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
@@ -478,6 +500,7 @@ function drawInspect(){
   const scheduleSummary = isWindowReminder || isMedication ? `At ${fmt(h)} · reminder` : '';
   const modeEditor = isWindowReminder ? uiTimeField('absoluteTime','Reminder time',h) : `
     ${c.k==='pomodoro'?'':uiTimeField('start','Start time',h)}`;
+  const hydrationGoal = c.k==='water' ? `<div class="fld hydration-goal"><label for="hydrationGoal">Daily goal <output id="hydrationGoalValue">${Math.round(c.goal||0)} ml</output></label><input id="hydrationGoal" type="range" min="0" max="6000" step="100" value="${Math.round(c.goal||0)}" aria-label="Hydration goal in millilitres"><div class="range-scale"><span>0 ml</span><span>6000 ml</span></div><div class="applyall">Set the daily hydration goal on Aura</div></div>` : '';
   const P=RAW.pomodoro;
   const pomoBlock = c.k==='pomodoro' ? `
     <div class="pomo-window">
@@ -497,6 +520,7 @@ function drawInspect(){
     ${labelField}
     ${medicationSchedule}
     ${modeEditor}
+    ${hydrationGoal}
     ${isWindowReminder||c.k==='pomodoro'||isCustomReminder?'':`<div class="fld"><label>Duration</label><div class="ctl step" id="dur"><button data-d="-1">−</button><output>${dd} min</output><button data-d="1">+</button></div>
       <div class="applyall">${durNote}</div></div>`}
     ${pomoBlock}
@@ -551,6 +575,16 @@ function drawInspect(){
     });
   } else {
     bindUiTime(box,'start',nv=>updateAbsoluteTime(nv));
+  }
+  if(c.k==='water'){
+    const goalControl=box.querySelector('#hydrationGoal'),goalValue=box.querySelector('#hydrationGoalValue');
+    goalControl.addEventListener('input',()=>{goalValue.textContent=`${goalControl.value} ml`;});
+    goalControl.addEventListener('change',()=>{
+      const goal=clamp(Math.round(Number(goalControl.value)/100)*100,0,6000);
+      c.goal=goal; RAW.reminders.hydration.goal_ml=goal; goalControl.value=String(goal); goalValue.textContent=`${goal} ml`;
+      renderConfigure();
+      runQuickCommand(`SET:GOAL ${goal}`,`Hydration goal set to ${goal} ml`);
+    });
   }
   const durationControl=box.querySelector('#dur');
   if(durationControl) durationControl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -722,7 +756,40 @@ function digest(){
     <div class="ln good"><span class="ic">✓</span><span>${good}</span></div>
     <div class="ln work"><span class="ic">!</span><span>${work}</span></div>`;
 }
-function renderStats(){ringChart();kpis();digest();}
+function occAck(catKey,occIdx,dayOffset){
+  let h=0; for(let i=0;i<catKey.length;i++) h=(h*31+catKey.charCodeAt(i))>>>0;
+  const r=rng(h ^ (occIdx*2654435761) ^ (dayOffset*40503) ^ 0x9e3779b9);
+  r();r();r(); return r() < (RATE[catKey]??.6);
+}
+function dayRate(catKey,dayOffset){
+  let h=0; for(let i=0;i<catKey.length;i++) h=(h*31+catKey.charCodeAt(i))>>>0;
+  const r=rng(h ^ (dayOffset*2246822519) ^ 0x85ebca6b);
+  r();r();r(); const base=RATE[catKey]??.6;
+  return Math.max(.05,Math.min(1,base+(r()-.5)*.8));
+}
+const CHECK_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="currentColor" opacity=".16"/><path d="M6 10l2.5 2.5L14 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MISS_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" opacity=".5"/><path d="M7 7l6 6M13 7l-6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
+const UP_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2.4" opacity=".6"/></svg>';
+function ackTier(rate){return rate>=.75?{c:cvar('--mint')} : rate>=.45?{c:cvar('--sand')}:{c:cvar('--err')};}
+function renderAckPanel(){
+  const panel=document.getElementById('ackPanel'),lbl=document.getElementById('ackRangeLbl');
+  if(!panel||!lbl)return;
+  const active=CATS.filter(c=>c.on);
+  if(range==='day'){
+    lbl.textContent='every reminder today'; const rows=[];
+    active.forEach(c=>c.times.forEach((h,i)=>{const upcoming=h>=NOW_H,ack=upcoming?null:occAck(c.k,i,0);rows.push({h,col:cvar(c.color),name:c.label,sub:c.labels&&c.labels[i],upcoming,ack});}));
+    rows.sort((a,b)=>a.h-b.h);
+    if(!rows.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
+    const chips=active.map(c=>{const due=c.times.filter(h=>h<NOW_H).length;if(!due)return null;const acked=c.times.map((h,i)=>h<NOW_H&&occAck(c.k,i,0)).filter(Boolean).length;const tier=ackTier(acked/due);return `<div class="ackChip" style="--tc:${tier.c};--cc:${cvar(c.color)}"><span class="catdot"></span><span class="nm">${c.label}</span><span class="pct">${Math.round(acked/due*100)}%</span></div>`;}).filter(Boolean).join('');
+    panel.innerHTML=(chips?`<div class="ackChips">${chips}</div>`:'')+`<div class="ackList">${rows.map(r=>{const st=r.upcoming?'up':r.ack?'ack':'miss',icon=r.upcoming?UP_SVG:r.ack?CHECK_SVG:MISS_SVG,label=r.upcoming?'Upcoming':r.ack?'Acknowledged':'Missed';return `<div class="ackRow" style="--c:${r.col}"><span class="dot"></span><span class="t">${fmt(r.h)}</span><span class="nm">${r.name}${r.sub?`<small>${esc(r.sub)}</small>`:''}</span><span class="ackStatus ${st}">${icon}${label}</span></div>`;}).join('')}</div>`;
+    return;
+  }
+  const n=range==='week'?7:30; lbl.textContent=range==='week'?'last 7 days, by category':'last 30 days, by category';
+  const D=['S','M','T','W','T','F','S'],head=Array.from({length:n},(_,i)=>range==='week'?D[i]:(i%5===0?i+1:''));
+  const html=`<div class="ackGridWrap"><div class="ackGrid"><div class="ackDays"><span class="lbl"></span>${head.map(d=>`<span>${d}</span>`).join('')}<span class="lbl"></span></div>${active.map(c=>{let sum=0;const col=cvar(c.color);const cells=Array.from({length:n},(_,day)=>{if(!c.times.length)return `<span class="ackCell"><i style="--c:${col};opacity:.12"></i></span>`;const rate=dayRate(c.k,day);sum+=rate;return `<span class="ackCell" title="${Math.round(rate*100)}%"><i style="--c:${col};opacity:${(.12+rate*.88).toFixed(2)}"></i></span>`;}).join('');const overall=c.times.length?sum/n:0;const mix=(15+overall*70).toFixed(0);return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${c.times.length?Math.round(overall*100)+'%':'—'}</span></span></div>`;}).join('')}</div></div>`;
+  panel.innerHTML=active.length?html:'<div class="ackEmpty">No active reminders in this range.</div>';
+}
+function renderStats(){ringChart();kpis();digest();renderAckPanel();}
 
 /* ================= DEVICE ================= */
 /* write the clock's current times/durations back into the device schema */
@@ -743,6 +810,7 @@ function toDeviceJSON(){
     }
   };
   setWin(J.reminders.hydration, cat('water'));
+  J.reminders.hydration.goal_ml=clamp(Math.round((cat('water').goal||0)/100)*100,0,6000);
   setWin(J.reminders.eye,       cat('eye'));
   setWin(J.reminders.stretch,   cat('stretch'));
   setWin(J.reminders.walk,      cat('walk'));
@@ -817,19 +885,21 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
   try{
     if(bleClient?.isConnected){
       await bleClient.disconnect();
-      bleClient=null; connected=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
+      bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
       setChip(); renderDevice(); toast('Disconnected');
     } else {
       bleClient=await requestFrostDevice();
       connected=bleClient.isConnected;
+      liveConfigSynced=false;
       bleClient['device']?.addEventListener('gattserverdisconnected',()=>{
-        bleClient=null; connected=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected')); setChip(); renderDevice(); toast('Device disconnected');
+        bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected')); setChip(); renderDevice(); toast('Device disconnected');
       });
       document.getElementById('dSerial').textContent=`${bleClient.name} · BLE characteristic ${CHAR_UUID}`;
       document.getElementById('dMac').textContent='Reading…';
       setChip(); renderDevice(); toast(`Connected to ${bleClient.name}`);
       try{
         const mac=await bleClient.readMacAddress();
+        deviceMac=mac;
         document.getElementById('dMac').textContent=mac;
         window.dispatchEvent(new CustomEvent('frost-device-mac',{detail:{macAddress:mac}}));
       }catch(error){
@@ -838,7 +908,7 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
       }
     }
   }catch(error){
-    bleClient=null; connected=false; document.getElementById('dMac').textContent='Not available'; setChip(); renderDevice();
+    bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; setChip(); renderDevice();
     toast(error instanceof Error?error.message:'BLE connection failed');
   }finally{button.disabled=false;}
 });
@@ -846,8 +916,11 @@ document.getElementById('dSync').addEventListener('click',async()=>{
   if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
   const button=document.getElementById('dSync'); button.disabled=true;
   try{
-    await bleClient.sendJsonConfiguration(toDeviceJSON());
+    const syncedConfig=toDeviceJSON();
+    await bleClient.sendJsonConfiguration(syncedConfig);
+    liveConfigSynced=true;
     device=snapshot(); renderDevice(); refreshDirty(); toast('Sent schema_ver 6 config to Aura');
+    if(deviceMac&&authenticatedUser?.uid&&authenticatedUser.email) void saveDeviceConfig(deviceMac,syncedConfig,authenticatedUser.uid,authenticatedUser.email);
   }catch(error){toast(error instanceof Error?error.message:'Configuration upload failed');}
   finally{button.disabled=false;renderDevice();}
 });
@@ -857,6 +930,10 @@ document.getElementById('dExport').addEventListener('click',()=>{
   toast('frost-config.json downloaded');
 });
 document.getElementById('dReset').addEventListener('click',()=>{location.reload();});
+window.addEventListener('frost:toast',event=>{
+  const detail=(event as CustomEvent<{message?:string}>).detail;
+  if(detail?.message)toast(detail.message);
+});
 
 /* ================= settings ================= */
 window.addEventListener('frost-settings-change',event=>{

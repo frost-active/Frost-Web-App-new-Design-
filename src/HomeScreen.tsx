@@ -4,6 +4,7 @@ import { mountFrost } from './legacy';
 import QuickActions from './components/QuickActions';
 import Settings from './components/Settings';
 import DeviceBinding from './components/DeviceBinding';
+import { useDeviceConfig } from './DeviceConfigSync';
 import type { User } from 'firebase/auth';
 
 export default function HomeScreen({ user }: { user: User }) {
@@ -13,6 +14,28 @@ export default function HomeScreen({ user }: { user: User }) {
   const deviceBindingRoot = useRef<Root | null>(null);
   const [volume, setVolume] = useState(30);
   const [displaySeconds, setDisplaySeconds] = useState(60);
+  const [macAddress, setMacAddress] = useState<string | null>(null);
+  const { config: storedDeviceConfig } = useDeviceConfig(macAddress, user.uid);
+
+  useEffect(() => {
+    const handleMac = (event: Event) => {
+      const mac = (event as CustomEvent<{ macAddress?: string }>).detail?.macAddress;
+      if (mac) setMacAddress(mac);
+    };
+    const handleDisconnect = () => setMacAddress(null);
+    window.addEventListener('frost-device-mac', handleMac);
+    window.addEventListener('frost-device-disconnected', handleDisconnect);
+    return () => {
+      window.removeEventListener('frost-device-mac', handleMac);
+      window.removeEventListener('frost-device-disconnected', handleDisconnect);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (storedDeviceConfig) {
+      window.dispatchEvent(new CustomEvent('frost-device-config', { detail: { config: storedDeviceConfig } }));
+    }
+  }, [macAddress, storedDeviceConfig]);
 
   const renderQuickActions = (currentVolume: number) => quickActionsRoot.current?.render(
     <QuickActions
