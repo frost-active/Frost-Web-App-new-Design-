@@ -18,7 +18,12 @@ type DeviceConfigDocument = {
 };
 
 const configDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress), 'configs', 'current');
+const deviceDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress));
 const historyCollection = (uid: string, macAddress: string) => collection(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress), 'configHistory');
+
+export async function saveDailyGoal(uid: string, macAddress: string, dailyGoalMl: number): Promise<void> {
+  await setDoc(deviceDocument(uid, macAddress), { dailyGoalMl: Math.max(0, Math.round(dailyGoalMl)) }, { merge: true });
+}
 
 export async function saveDeviceConfig(macAddress: string, config: DeviceConfig, uid: string, email: string): Promise<void> {
   const sanitizedMac = sanitizeMac(macAddress);
@@ -30,6 +35,9 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
       lastSyncedBy: uid,
       lastSyncedByEmail: email,
     }, { merge: true });
+    const dailyGoalWrite = setDoc(deviceDocument(uid, macAddress), {
+      dailyGoalMl: Math.max(0, Math.round(Number(config.reminders.hydration.goal_ml) || 0)),
+    }, { merge: true });
     // Audit history is write-only for now; a future useDeviceConfigHistory hook can read it.
     const historyWrite = addDoc(historyCollection(uid, macAddress), {
       macAddress,
@@ -39,13 +47,16 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
       syncedByEmail: email,
       syncedAt: serverTimestamp(),
     });
-    const results = await Promise.allSettled([currentWrite, historyWrite]);
+    const results = await Promise.allSettled([currentWrite, historyWrite, dailyGoalWrite]);
     const currentResult = results[0];
     const historyResult = results[1];
     if (currentResult.status === 'rejected') throw currentResult.reason;
     window.dispatchEvent(new CustomEvent('frost-device-config-saved'));
     if (historyResult.status === 'rejected') {
       console.error('Unable to save the FROST device configuration history.', historyResult.reason);
+    }
+    if (results[2].status === 'rejected') {
+      console.error('Unable to save the FROST daily hydration goal.', results[2].reason);
     }
   } catch (error) {
     console.error('Unable to save the synced FROST device configuration.', error);

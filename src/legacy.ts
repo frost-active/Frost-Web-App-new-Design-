@@ -2,7 +2,7 @@
 import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
-import { saveDeviceConfig } from './DeviceConfigSync';
+import { saveDailyGoal, saveDeviceConfig } from './DeviceConfigSync';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<div class="wrap">
   <header>
@@ -276,7 +276,7 @@ window.addEventListener('frost-device-config-saved',()=>{
 window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
   statisticsUnsubscribe();
-  statisticsUnsubscribe=subscribeDeviceStatistics(mac??null,(records)=>{storedStatistics=records;});
+  statisticsUnsubscribe=subscribeDeviceStatistics(mac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();});
 });
 window.addEventListener('frost-device-disconnected',()=>{statisticsUnsubscribe();statisticsUnsubscribe=()=>undefined;storedStatistics=[];});
 
@@ -606,7 +606,9 @@ function drawInspect(){
       const goal=clamp(Math.round(Number(goalControl.value)/100)*100,0,6000);
       c.goal=goal; RAW.reminders.hydration.goal_ml=goal; goalControl.value=String(goal); goalValue.textContent=`${goal} ml`;
       renderConfigure();
-      runQuickCommand(`SET:GOAL ${goal}`,`Hydration goal set to ${goal} ml`);
+      void runQuickCommand(`SET:GOAL ${goal}`,`Hydration goal set to ${goal} ml`).then(()=>{
+        if(deviceMac&&authenticatedUser?.uid)void saveDailyGoal(authenticatedUser.uid,deviceMac,goal).catch(()=>toast('Hydration goal was set on Aura, but could not be saved to the cloud'));
+      });
     });
   }
   const durationControl=box.querySelector('#dur');
@@ -680,7 +682,47 @@ dial.addEventListener('pointerup',()=>{if(!drag)return;
 dial.addEventListener('click',e=>{const p=e.target.closest('.seg');if(!p)return;sel={k:p.dataset.k,i:+p.dataset.i};renderConfigure();maybeScroll();});
 
 /* ================= STATISTICS ================= */
-function catStat(c){                 // deterministic per range
+/* real device data (from a synced Statistics DB record) is used wherever it
+   exists for the active range; the deterministic simulated numbers below
+   remain only as a fallback for categories/ranges nothing has synced yet. */
+const STAT_FIELD={water:'hyd',meds:'med',eye:'eye',stretch:'str',walk:'walk',meditation:'medit',custom:'cust'};
+function hasRealStats(){ return storedStatistics.length>0; }
+function statRecordsForRange(){
+  if(!storedStatistics.length) return [];
+  if(range==='day') return storedStatistics.slice(-1);
+  if(range==='week') return storedStatistics.slice(-7);
+  return storedStatistics.slice(-30);
+}
+function realDayCounts(catKey){
+  const field=STAT_FIELD[catKey];
+  if(!field || !hasRealStats()) return null;
+  const today=storedStatistics[storedStatistics.length-1];
+  if(!today) return null;
+  const ack=Number(today[field+'_ack']||0), miss=Number(today[field+'_miss']||0);
+  return {ack, miss, due:ack+miss};
+}
+function waterSeriesForRange(){
+  const n=range==='day'?1:range==='week'?7:30, water=CATS.find(c=>c.k==='water');
+  const records=statRecordsForRange();
+  if(hasRealStats() && records.length){
+    const goal=Number(records[records.length-1].hyd_goal_ml)||water.goal;
+    return {series:records.map(r=>Number(r.hyd_ml||0)), goal, dateLabels:records.map(r=>r.date)};
+  }
+  const goal=water.goal;
+  const r=rng(4242+n);const series=[];for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.6:1;series.push(Math.round(water.times.length*250*RATE.water*dip*(0.8+r()*0.45)/50)*50);}
+  return {series, goal, dateLabels:null};
+}
+function catStat(c){                 // real data first, simulated fallback per range
+  const field=STAT_FIELD[c.k];
+  if(field && hasRealStats()){
+    const records=statRecordsForRange();
+    let done=0,due=0;
+    records.forEach(r=>{
+      const ack=Number(r[field+'_ack']||0), miss=Number(r[field+'_miss']||0);
+      done+=ack; due+=ack+miss;
+    });
+    return {rate:due?done/due:0, done, due};
+  }
   if(range==='day'){const due=c.times.filter(h=>h<NOW_H).length;return {rate:RATE[c.k],done:Math.round(due*RATE[c.k]),due};}
   const n=range==='week'?7:30, r=rng(97*c.k.length+ n);
   let d=0,t=0; for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.55:1;const due=c.times.length;const done=Math.round(due*RATE[c.k]*dip*(0.8+r()*0.4));d+=Math.min(done,due);t+=due;}
@@ -706,16 +748,16 @@ function donut(pct,color){
     <circle class="fg" cx="23" cy="23" r="${R}" stroke="${color}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/></svg>`;
 }
 function kpis(){
-  const n=range==='day'?1:range==='week'?7:30, water=CATS.find(c=>c.k==='water');
-  const r=rng(4242+n);const series=[];for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.6:1;series.push(Math.round(water.times.length*250*RATE.water*dip*(0.8+r()*0.45)/50)*50);}
-  const avg=Math.round(series.reduce((a,b)=>a+b,0)/n), goal=water.goal, met=series.filter(v=>v>=goal).length;
+  const {series, goal, dateLabels} = waterSeriesForRange();
+  const count = series.length || 1;
+  const avg=Math.round(series.reduce((a,b)=>a+b,0)/count), met=series.filter(v=>v>=goal).length;
   let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=goal)streak++;else break;}
-  const active=CATS.filter(c=>c.on);let sr=0;active.forEach(c=>sr+=catStat(c).rate);const adh=Math.round(sr/active.length*100);
+  const active=CATS.filter(c=>c.on);let sr=0;active.forEach(c=>sr+=catStat(c).rate);const adh=active.length?Math.round(sr/active.length*100):0;
 
   const teal=cvar('--teal'), sky=cvar('--sky');
   const fillPct=clamp(Math.round(avg/goal*100),0,100);
   // streak dots: light `streak` of up to a sensible cap
-  const cap=Math.max(n,streak,6), shown=Math.min(cap,14);
+  const cap=Math.max(series.length,streak,6), shown=Math.min(cap,14);
   let flames='';for(let i=0;i<shown;i++)flames+=`<span class="${i<streak?'lit':''}"></span>`;
 
   document.getElementById('kpi').innerHTML=`
@@ -723,8 +765,8 @@ function kpis(){
       <div class="gfx"><div class="glass"><i style="height:${fillPct}%"></i></div></div>
       <div class="txt"><p>Avg intake</p><b>${avg}<small> ml</small></b><small class="sub">${fillPct}% of ${goal} ml goal</small></div></div>
     <div class="k">
-      <div class="gfx">${donut(n?met/n*100:0,sky)}<div class="dlabel">${met}/${n}</div></div>
-      <div class="txt"><p>Goal met</p><b>${met}<small>/${n}</small></b><small class="sub">days at or above</small></div></div>
+      <div class="gfx">${donut(series.length?met/series.length*100:0,sky)}<div class="dlabel">${met}/${series.length}</div></div>
+      <div class="txt"><p>Goal met</p><b>${met}<small>/${series.length}</small></b><small class="sub">days at or above</small></div></div>
     <div class="k">
       <div class="gfx">${donut(adh,teal)}<div class="dlabel">${adh}%</div></div>
       <div class="txt"><p>Adherence</p><b>${adh}%</b><small class="sub">all categories</small></div></div>
@@ -732,10 +774,12 @@ function kpis(){
       <div class="gfx"><div class="flames">${flames}</div></div>
       <div class="txt"><p>Streak</p><b>${streak}</b><small class="sub">consecutive days</small></div></div>`;
 
-  const mx=Math.max(...series,goal);
+  const mx=Math.max(...series,goal,1);
   document.getElementById('waterBars').innerHTML=series.map(v=>`<div class="b ${v>=goal?'hi':''}"><i style="height:${8+v/mx*88}px" title="${v} ml"></i></div>`).join('');
   const D=['S','M','T','W','T','F','S'];
-  document.getElementById('waterLab').innerHTML=series.map((_,i)=>`<span>${n===1?'today':n===7?D[i]:(i%5===0?i+1:'')}</span>`).join('');
+  document.getElementById('waterLab').innerHTML = dateLabels
+    ? dateLabels.map(d=>`<span>${range==='day'?'today':d.slice(5)}</span>`).join('')
+    : series.map((_,i)=>`<span>${series.length===1?'today':series.length===7?D[i]:(i%5===0?i+1:'')}</span>`).join('');
   document.getElementById('rangeLbl').textContent=range==='day'?'today':range==='week'?'last 7 days':'last 30 days';
 }
 function digest(){
@@ -746,11 +790,11 @@ function digest(){
   const period=range==='day'?'today':range==='week'?'this week':'this month';
   const win=range==='day'?'today':range==='week'?'over the last 7 days':'over the last 30 days';
 
-  // water goal picture (reuse the same seeded series shape as kpis)
-  const water=CATS.find(c=>c.k==='water'), n=range==='day'?1:range==='week'?7:30;
-  const r=rng(4242+n);const series=[];for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.6:1;series.push(Math.round(water.times.length*250*RATE.water*dip*(0.8+r()*0.45)/50)*50);}
-  const met=series.filter(v=>v>=water.goal).length;
-  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=water.goal)streak++;else break;}
+  // water goal picture — real synced series when available, simulated fallback otherwise
+  const {series, goal} = waterSeriesForRange();
+  const n=series.length||1;
+  const met=series.filter(v=>v>=goal).length;
+  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=goal)streak++;else break;}
 
   // ---- GOOD line ----
   let good;
@@ -798,20 +842,28 @@ function renderAckPanel(){
   const panel=document.getElementById('ackPanel'),lbl=document.getElementById('ackRangeLbl');
   if(!panel||!lbl)return;
   const active=syncedCategories().filter(c=>c.on);
+
   if(range==='day'){
     lbl.textContent='today, by category';
     if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
     const html=`<div class="ackGridWrap"><div class="ackGrid">
       ${active.map(c=>{
-        const col=cvar(c.color); let due=0,acked=0;
+        const col=cvar(c.color);
+        const real=realDayCounts(c.k);       // {ack,miss,due} from today's synced record, or null
+        let due=0, acked=0, realIdx=0;
         const cells=c.times.map((h,i)=>{
           const sub=(c.labels&&c.labels[i])?c.labels[i]:null;
           const upcoming=h>=NOW_H, nameBit=sub?`${c.label} — ${sub}`:c.label;
           if(upcoming)return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · upcoming"><i class="upcoming" style="--c:${col}"></i></span>`;
-          due++; const ack=occAck(c.k,i,0); if(ack)acked++;
+          due++;
+          let ack;
+          if(real){ ack = realIdx < real.ack; realIdx++; }   // best-effort: light up the first `ack` due slots
+          else { ack = occAck(c.k,i,0); }
+          if(ack) acked++;
           return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · ${ack?'acknowledged':'missed'}"><i style="--c:${col};opacity:${ack?1:.15}"></i></span>`;
         }).join('');
-        const rate=due?acked/due:null, mix=rate==null?0:(15+rate*70).toFixed(0);
+        const rate = real ? (real.due ? real.ack/real.due : null) : (due?acked/due:null);
+        const mix=rate==null?0:(15+rate*70).toFixed(0);
         const pct=rate==null
           ? `<span class="ackPct"><span class="pill" style="--bg:var(--panel2);color:var(--muted)">—</span></span>`
           : `<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${Math.round(rate*100)}%</span></span>`;
@@ -821,31 +873,53 @@ function renderAckPanel(){
     panel.innerHTML=html;
     return;
   }
-  const n=range==='week'?7:30; lbl.textContent=range==='week'?'last 7 days, by category':'last 30 days, by category';
-  const D=['S','M','T','W','T','F','S'],head=Array.from({length:n},(_,i)=>range==='week'?D[i]:(i%5===0?i+1:''));
-  const html=`<div class="ackGridWrap"><div class="ackGrid"><div class="ackDays"><span class="lbl"></span>${head.map(d=>`<span>${d}</span>`).join('')}<span class="lbl"></span></div>${active.map(c=>{let sum=0;const col=cvar(c.color);const cells=Array.from({length:n},(_,day)=>{if(!c.times.length)return `<span class="ackCell"><i style="--c:${col};opacity:.12"></i></span>`;const rate=dayRate(c.k,day);sum+=rate;return `<span class="ackCell" title="${Math.round(rate*100)}%"><i style="--c:${col};opacity:${(.12+rate*.88).toFixed(2)}"></i></span>`;}).join('');const overall=c.times.length?sum/n:0;const mix=(15+overall*70).toFixed(0);return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${c.times.length?Math.round(overall*100)+'%':'—'}</span></span></div>`;}).join('')}</div></div>`;
-  panel.innerHTML=active.length?html:'<div class="ackEmpty">No active reminders in this range.</div>';
+
+  const n=range==='week'?7:30;
+  lbl.textContent=range==='week'?'last 7 days, by category':'last 30 days, by category';
+  const D=['S','M','T','W','T','F','S'];
+  const records=statRecordsForRange();
+  const useRealCols = hasRealStats() && records.length>0;
+  const cols = useRealCols ? records.length : n;
+  const weekdayLetter=dateStr=>D[new Date(dateStr+'T00:00:00').getDay()];
+  const head = useRealCols
+    ? records.map(r=>range==='week' ? weekdayLetter(r.date) : Number(r.date.slice(8)))
+    : Array.from({length:cols},(_,i)=>range==='week'?D[i]:(i%5===0?i+1:''));
+
+  if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders in this range.</div>';return;}
+
+  const html=`<div class="ackGridWrap"><div class="ackGrid"><div class="ackDays"><span class="lbl"></span>${head.map(d=>`<span>${d}</span>`).join('')}<span class="lbl"></span></div>
+    ${active.map(c=>{
+      let sum=0; const col=cvar(c.color);
+      const field=STAT_FIELD[c.k];
+      const useReal = useRealCols && field;
+      const cells=Array.from({length:cols},(_,day)=>{
+        let rate;
+        if(useReal){
+          const rec=records[day];
+          const ack=Number(rec[field+'_ack']||0), miss=Number(rec[field+'_miss']||0), due=ack+miss;
+          rate = due ? ack/due : 0;
+        } else if(!c.times.length){
+          return `<span class="ackCell"><i style="--c:${col};opacity:.12"></i></span>`;
+        } else {
+          rate = dayRate(c.k, day);
+        }
+        sum += rate;
+        return `<span class="ackCell" title="${Math.round(rate*100)}%"><i style="--c:${col};opacity:${(.12+rate*.88).toFixed(2)}"></i></span>`;
+      }).join('');
+      const overall = cols ? sum/cols : 0;
+      const mix=(15+overall*70).toFixed(0);
+      return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${cols?Math.round(overall*100)+'%':'—'}</span></span></div>`;
+    }).join('')}
+  </div></div>`;
+  panel.innerHTML=html;
 }
 function renderStats(){ringChart();kpis();digest();renderAckPanel();}
-
-function renderStoredStatistics(){
-  const current=storedStatistics[storedStatistics.length-1];
-  if(!current)return;
-  const rangeRecords=range==='day'?storedStatistics.slice(-1):storedStatistics.slice(range==='week'?-7:-30);
-  const total=(key:'hyd_ack'|'hyd_miss'|'str_ack'|'str_miss'|'eye_ack'|'eye_miss'|'walk_ack'|'walk_miss'|'medit_ack'|'medit_miss')=>rangeRecords.reduce((sum,record)=>sum+Number(record[key]||0),0);
-  const totalDue=total('hyd_ack')+total('hyd_miss');
-  const rangeLbl=document.getElementById('rangeLbl'); if(rangeLbl)rangeLbl.textContent=range==='day'?'today':range==='week'?'last 7 days':'last 30 days';
-  const ackPanel=document.getElementById('ackPanel'); if(ackPanel)ackPanel.innerHTML=`<div class="stats-record"><b>${rangeRecords.length}</b> synced day${rangeRecords.length===1?'':'s'} · <b>${total('hyd_ack')+total('str_ack')+total('eye_ack')+total('walk_ack')+total('medit_ack')}</b> acknowledged · <b>${total('hyd_miss')+total('str_miss')+total('eye_miss')+total('walk_miss')+total('medit_miss')}</b> missed</div>`;
-  const kpi=document.getElementById('kpi'); if(kpi)kpi.innerHTML=`<div class="k"><div class="txt"><p>Hydration</p><b>${current.hyd_ml}<small> ml</small></b><small class="sub">goal ${current.hyd_goal_ml} ml</small></div></div><div class="k"><div class="txt"><p>Goal completion</p><b>${totalDue?Math.round(total('hyd_ack')/totalDue*100):0}%</b><small class="sub">synced records</small></div></div><div class="k"><div class="txt"><p>Medication</p><b>${current.med_ack}/${current.med_miss}</b><small class="sub">acknowledged / missed</small></div></div><div class="k"><div class="txt"><p>Custom</p><b>${current.cust_ack}/${current.cust_miss}</b><small class="sub">acknowledged / missed</small></div></div>`;
-  const bars=document.getElementById('waterBars'); if(bars)bars.innerHTML=rangeRecords.map(record=>`<div class="b ${record.hyd_ml>=record.hyd_goal_ml?'hi':''}"><i style="height:${Math.min(96,Math.max(2,record.hyd_ml/Math.max(record.hyd_goal_ml,1)*96))}px" title="${record.date}: ${record.hyd_ml} ml"></i></div>`).join('');
-  const labels=document.getElementById('waterLab'); if(labels)labels.innerHTML=rangeRecords.map(record=>`<span>${record.date.slice(5)}</span>`).join('');
-}
 
 async function syncStatistics(mode:'today'|'history'='today'){
   const status=document.getElementById('statsSyncStatus'), button=document.getElementById('statsSync') as HTMLButtonElement|null;
   if(!bleClient?.isConnected||!deviceMac){toast('Connect a FROST Aura device first');return;}
   if(button)button.disabled=true; if(status)status.textContent='Syncing…';
-  try{storedStatistics=await syncDeviceStatistics(bleClient,deviceMac,mode);if(status)status.textContent='Synced from device';if(page==='stats'){renderStats();}}
+  try{storedStatistics=await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid);if(status)status.textContent='Synced from device';if(page==='stats'){renderStats();}}
   catch(error){if(status)status.textContent='Sync failed';toast(error instanceof Error?error.message:'Statistics sync failed');}
   finally{if(button)button.disabled=false;}
 }
@@ -1240,6 +1314,3 @@ window.addEventListener('resize',applyMode);
 show('configure');
 
 }
-
-
-

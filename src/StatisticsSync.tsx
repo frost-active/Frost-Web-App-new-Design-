@@ -30,11 +30,15 @@ export type DeviceStatistics = {
   updatedAt?: unknown;
 };
 
-type MetricKey = keyof DeviceStatistics;
-const numericKeys: MetricKey[] = ['hyd_ml', 'hyd_goal_ml', 'hyd_ack', 'hyd_miss', 'str_ack', 'str_miss', 'eye_ack', 'eye_miss', 'walk_ack', 'walk_miss', 'medit_ack', 'medit_miss', 'med_ack', 'med_miss', 'cust_ack', 'cust_miss'];
 const numberValue = (value: string | undefined) => { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; };
 const normalizeDate = (value: string) => { const compact = value.trim().replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3'); return /^\d{4}-\d{2}-\d{2}$/.test(compact) ? compact : ''; };
 const emptyStats = (date: string): DeviceStatistics => ({ date, deviceDate: date, hyd_ml: 0, hyd_goal_ml: 0, hyd_ack: 0, hyd_miss: 0, str_ack: 0, str_miss: 0, eye_ack: 0, eye_miss: 0, walk_ack: 0, walk_miss: 0, medit_ack: 0, medit_miss: 0, med_ack: 0, med_miss: 0, cust_ack: 0, cust_miss: 0, medEntries: [], custEntries: [] });
+const metricMarkers = /^(DAY|HYD|STR|EYE|WALK|MEDIT|MED|CUSTOM)\b/i;
+const splitMetricValues = (payload: string) => {
+  const keyed = [...payload.matchAll(/(?:^|[,;|\s])(?:ml|goal|ack|miss|value)\s*[:=]\s*(-?\d+(?:\.\d+)?)/gi)].map((match) => match[1]);
+  if (keyed.length) return keyed;
+  return payload.replace(/[=:]/g, ' ').split(/[,;|\s]+/).filter(Boolean);
+};
 
 export function parseStatisticsLines(lines: string[]): DeviceStatistics[] {
   const output = new Map<string, DeviceStatistics>();
@@ -42,15 +46,17 @@ export function parseStatisticsLines(lines: string[]): DeviceStatistics[] {
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || /^(STATS_BEGIN|STATS_END|HISTORY_END|DAY_END)/.test(line)) { if (line === 'DAY_END') current = null; continue; }
-    const parts = line.split(':');
-    const marker = parts.shift()?.trim().toUpperCase();
+    const match = line.match(metricMarkers);
+    if (!match) continue;
+    const marker = match[1].toUpperCase();
+    const payload = line.slice(match[0].length).replace(/^\s*[:=,|]\s*/, '').trim();
     if (marker === 'DAY') {
-      const date = normalizeDate(parts.join(':'));
+      const date = normalizeDate(payload);
       if (!date) { current = null; continue; }
-      current = output.get(date) ?? emptyStats(date); current.deviceDate = parts.join(':').trim(); output.set(date, current); continue;
+      current = output.get(date) ?? emptyStats(date); current.deviceDate = payload; output.set(date, current); continue;
     }
     if (!current || !marker) continue;
-    const values = parts.join(':').split(',').map((value) => value.trim());
+    const values = splitMetricValues(payload);
     if (marker === 'HYD') [current.hyd_ml, current.hyd_goal_ml, current.hyd_ack, current.hyd_miss] = values.slice(0, 4).map(numberValue);
     else if (marker === 'STR') [current.str_ack, current.str_miss] = values.slice(0, 2).map(numberValue);
     else if (marker === 'EYE') [current.eye_ack, current.eye_miss] = values.slice(0, 2).map(numberValue);
@@ -60,12 +66,34 @@ export function parseStatisticsLines(lines: string[]): DeviceStatistics[] {
       const entry = { ack: numberValue(values[0]), miss: numberValue(values[1]) };
       const entries = marker === 'MED' ? current.medEntries : current.custEntries;
       entries.push(entry);
-      const prefix = marker === 'MED' ? ['med_ack', 'med_miss'] : ['cust_ack', 'cust_miss'];
-      current[prefix[0] as MetricKey] = entries.reduce((sum, item) => sum + item.ack, 0);
-      current[prefix[1] as MetricKey] = entries.reduce((sum, item) => sum + item.miss, 0);
+      if (marker === 'MED') {
+        current.med_ack = entries.reduce((sum, item) => sum + item.ack, 0);
+        current.med_miss = entries.reduce((sum, item) => sum + item.miss, 0);
+      } else {
+        current.cust_ack = entries.reduce((sum, item) => sum + item.ack, 0);
+        current.cust_miss = entries.reduce((sum, item) => sum + item.miss, 0);
+      }
     }
   }
-  return [...output.values()].map((record) => { for (const key of numericKeys) record[key] = numberValue(String(record[key] ?? 0)); return record; });
+  return [...output.values()].map((record) => ({
+    ...record,
+    hyd_ml: numberValue(String(record.hyd_ml)),
+    hyd_goal_ml: numberValue(String(record.hyd_goal_ml)),
+    hyd_ack: numberValue(String(record.hyd_ack)),
+    hyd_miss: numberValue(String(record.hyd_miss)),
+    str_ack: numberValue(String(record.str_ack)),
+    str_miss: numberValue(String(record.str_miss)),
+    eye_ack: numberValue(String(record.eye_ack)),
+    eye_miss: numberValue(String(record.eye_miss)),
+    walk_ack: numberValue(String(record.walk_ack)),
+    walk_miss: numberValue(String(record.walk_miss)),
+    medit_ack: numberValue(String(record.medit_ack)),
+    medit_miss: numberValue(String(record.medit_miss)),
+    med_ack: numberValue(String(record.med_ack)),
+    med_miss: numberValue(String(record.med_miss)),
+    cust_ack: numberValue(String(record.cust_ack)),
+    cust_miss: numberValue(String(record.cust_miss)),
+  }));
 }
 
 async function collectProtocol(client: FrostBleClient, mode: StatisticsMode): Promise<string[]> {
@@ -91,16 +119,21 @@ async function collectFallback(client: FrostBleClient): Promise<string[]> {
 }
 
 const statisticsCollection = (macAddress: string) => collection(firebaseDb, 'devices', sanitizeMac(macAddress), 'statistics');
+const deviceDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress));
 
-export async function syncDeviceStatistics(client: FrostBleClient, macAddress: string, mode: StatisticsMode = 'today'): Promise<DeviceStatistics[]> {
+export async function syncDeviceStatistics(client: FrostBleClient, macAddress: string, mode: StatisticsMode = 'today', uid?: string): Promise<DeviceStatistics[]> {
   let lines: string[];
   try { lines = await collectProtocol(client, mode); } catch { lines = await collectFallback(client); }
   const parsed = parseStatisticsLines(lines);
+  const storedGoal = uid ? Number((await getDoc(deviceDocument(uid, macAddress))).data()?.dailyGoalMl) : 0;
   for (const record of parsed) {
     const reference = doc(statisticsCollection(macAddress), record.date);
     const existing = await getDoc(reference);
     const existingGoal = Number(existing.data()?.hyd_goal_ml);
-    if (record.hyd_goal_ml === 0 && Number.isFinite(existingGoal) && existingGoal > 0) record.hyd_goal_ml = existingGoal;
+    const nextGoal = storedGoal > 0
+      ? storedGoal
+      : (Number.isFinite(existingGoal) && existingGoal > 0 ? existingGoal : record.hyd_goal_ml);
+    record.hyd_goal_ml = Number.isFinite(nextGoal) && nextGoal > 0 ? nextGoal : 0;
     await setDoc(reference, { ...record, updatedAt: serverTimestamp() }, { merge: true });
   }
   return parsed;
