@@ -127,6 +127,16 @@ export class FrostBleClient {
     return this.readStatus();
   }
 
+  async syncCurrentTime(now: Date = new Date()): Promise<string> {
+    const pad = (value: number) => String(value).padStart(2, '0');
+    const command = `SET ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const status = await this.sendAndRead(command);
+    if (status.startsWith('ERROR:')) {
+      throw new Error(status === 'ERROR:SET time failed' ? 'SET time failed' : status);
+    }
+    return status;
+  }
+
   async readMacAddress(): Promise<string> {
     const status = await this.sendAndRead(CMD_DEVICE_MAC_GET);
     const prefix = 'DEVICE_MAC:';

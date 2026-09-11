@@ -1,6 +1,8 @@
 
 type Props = {
   volume: number;
+  dndEnabled: boolean;
+  isDeviceConnected: boolean;
   onVolumeChange: (value: number) => void;
   onWifi: () => void;
   onDnd: () => void;
@@ -10,6 +12,8 @@ type Props = {
 
 export default function QuickActions({
   volume,
+  dndEnabled,
+  isDeviceConnected,
   onVolumeChange,
   onWifi,
   onDnd,
@@ -18,6 +22,8 @@ export default function QuickActions({
 }: Props) {
   // Keep volume safely within the slider range.
   const safeVolume = Math.min(30, Math.max(0, Number(volume) || 0));
+  const dndIcon = dndEnabled ? '◉' : '◌';
+  const dndLabel = dndEnabled ? 'Do Not Disturb On' : 'Do Not Disturb Off';
 
   const handleVolumeChange = (
     event: React.ChangeEvent<HTMLInputElement>
@@ -68,12 +74,14 @@ export default function QuickActions({
         </button>
 
         <button
-          className="quick-btn"
+          className={`quick-btn${dndEnabled ? ' quick-btn-accent' : ''}`}
           type="button"
           onClick={onDnd}
+          disabled={!isDeviceConnected}
+          aria-pressed={dndEnabled}
         >
-          <span className="quick-icon">◐</span>
-          Do Not Disturb
+          <span className="quick-icon">{dndIcon}</span>
+          {dndLabel}
         </button>
 
         <button

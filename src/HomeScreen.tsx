@@ -15,14 +15,21 @@ export default function HomeScreen({ user }: { user: User }) {
   const [volume, setVolume] = useState(30);
   const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
-  const { config: storedDeviceConfig } = useDeviceConfig(macAddress, user.uid);
+  const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+  const { config: storedDeviceConfig, dndEnabled: storedDndEnabled } = useDeviceConfig(macAddress, user.uid);
 
   useEffect(() => {
     const handleMac = (event: Event) => {
       const mac = (event as CustomEvent<{ macAddress?: string }>).detail?.macAddress;
-      if (mac) setMacAddress(mac);
+      if (mac) {
+        setMacAddress(mac);
+        setIsDeviceConnected(true);
+      }
     };
-    const handleDisconnect = () => setMacAddress(null);
+    const handleDisconnect = () => {
+      setMacAddress(null);
+      setIsDeviceConnected(false);
+    };
     window.addEventListener('frost-device-mac', handleMac);
     window.addEventListener('frost-device-disconnected', handleDisconnect);
     return () => {
@@ -37,9 +44,15 @@ export default function HomeScreen({ user }: { user: User }) {
     }
   }, [macAddress, storedDeviceConfig]);
 
-  const renderQuickActions = (currentVolume: number) => quickActionsRoot.current?.render(
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('frost-device-dnd-status', { detail: { enabled: Boolean(storedDndEnabled) } }));
+  }, [storedDndEnabled]);
+
+  const renderQuickActions = (currentVolume: number, currentDndEnabled: boolean) => quickActionsRoot.current?.render(
     <QuickActions
       volume={currentVolume}
+      dndEnabled={currentDndEnabled}
+      isDeviceConnected={isDeviceConnected}
       onVolumeChange={(value) => {
         setVolume(value);
         dispatchQuickAction('volume', value);
@@ -82,7 +95,7 @@ export default function HomeScreen({ user }: { user: User }) {
     if (!host) return;
 
     quickActionsRoot.current = createRoot(host);
-    renderQuickActions(volume);
+    renderQuickActions(volume, Boolean(storedDndEnabled));
     const settingsHost = dashboard.querySelector<HTMLElement>('#settings-root');
     if (settingsHost) {
       settingsRoot.current = createRoot(settingsHost);
@@ -101,8 +114,8 @@ export default function HomeScreen({ user }: { user: User }) {
   }, [user]);
 
   useEffect(() => {
-    renderQuickActions(volume);
-  }, [volume]);
+    renderQuickActions(volume, Boolean(storedDndEnabled));
+  }, [volume, storedDndEnabled, isDeviceConnected]);
 
   useEffect(() => {
     renderSettings(displaySeconds);

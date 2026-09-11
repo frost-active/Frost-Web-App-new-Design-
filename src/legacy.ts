@@ -2,9 +2,108 @@
 import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
-import { saveDailyGoal, saveDeviceConfig } from './DeviceConfigSync';
+import { saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
-const frostMarkup = String.raw`<div class="wrap">
+const frostMarkup = String.raw`<style id="frost-mobile-fix">
+/* Clock toolbar — Sync Now on the top-right of the dial (desktop + mobile) */
+#page-configure .clockcard {
+  position: relative;
+}
+#page-configure .clock-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+#page-configure .clock-toolbar .clock-sync {
+  pointer-events: auto;
+  min-width: 104px;
+  padding: 8px 14px;
+  font: 600 12px/1.2 'DM Sans', system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--sky, #5eb8ff) 55%, transparent);
+  background: color-mix(in srgb, var(--panel2, #15202b) 88%, transparent);
+  color: var(--ink, #eef6fc);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+#page-configure .clock-toolbar .clock-sync:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sky, #5eb8ff) 18%, var(--panel2, #15202b));
+  transform: translateY(-1px);
+}
+#page-configure .clock-toolbar .clock-sync:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+  transform: none;
+}
+#page-configure .clock-toolbar .clock-sync.is-syncing {
+  opacity: 0.9;
+  cursor: wait;
+}
+
+/* Mobile-only layout fixes — desktop layout is left completely unchanged */
+@media (max-width: 680px) {
+  html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
+  .wrap { height: auto !important; min-height: 100vh; overflow: visible !important; display: flex; flex-direction: column; }
+  #page-configure { display: block !important; overflow: visible !important; height: auto !important; max-height: none !important; flex: 1 1 auto; }
+  #page-configure .stage {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    gap: 12px;
+  }
+  #page-configure .clockcard {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  #page-configure .clockcard .dial,
+  #page-configure .clockcard svg.dial {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+  }
+  #page-configure .side {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-y: visible !important;
+  }
+  #page-configure .card,
+  #page-configure .insp,
+  #page-configure .aura-card {
+    overflow: visible !important;
+  }
+  #page-configure .clock-toolbar {
+    top: 8px;
+    right: 8px;
+  }
+  #page-configure .clock-toolbar .clock-sync {
+    min-width: 96px;
+    padding: 7px 12px;
+    font-size: 11px;
+  }
+  /* Keep the floating Aura FAB from blocking scroll end */
+  .aura-fab { bottom: 16px; right: 16px; }
+}
+</style>
+<div class="wrap">
   <header>
     <div class="logo">FROST<span>·</span></div>
     <nav class="tabs" id="tabs">
@@ -31,7 +130,12 @@ const frostMarkup = String.raw`<div class="wrap">
     <div class="ptitle">Day Clock</div>
     <p class="psub">Each reminder is a coloured arc on its own ring — arc length is how long it lasts. Midnight up top, noon at the bottom. Drag an arc to move it; pick one to set its time and duration.</p>
     <div class="stage">
-      <div class="clockcard"><svg class="dial" id="dial" viewBox="0 0 640 640" aria-label="24-hour reminder clock"></svg></div>
+      <div class="clockcard">
+        <div class="clock-toolbar">
+          <button class="btn clock-sync" id="cfgSync" type="button" title="Send current schedule to your FROST Aura">Sync Now</button>
+        </div>
+        <svg class="dial" id="dial" viewBox="0 0 640 640" aria-label="24-hour reminder clock"></svg>
+      </div>
       <div class="side">
         <div class="card"><h2>Reminders</h2><div class="legend" id="legend"></div></div>
         <div class="card insp" id="insp"></div>
@@ -100,6 +204,14 @@ const frostMarkup = String.raw`<div class="wrap">
         <div class="drow"><div class="t"><p>Transport</p><small>Web Bluetooth (BLE 5.0) — schedule never leaves the room</small></div>
           <button class="btn" id="dSync" disabled>Sync now</button></div>
       </div>
+      <div class="card"><h2>Rename device</h2>
+        <div class="drow"><div class="t"><p>Device name</p><small>Use a friendly name for this Aura.</small></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="dRenameInput" type="text" value="Frost 1" maxlength="32" aria-label="Device name" style="min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);color:var(--text)">
+            <button class="btn" id="dRenameSave" type="button">Save</button>
+          </div>
+        </div>
+      </div>
       <div class="card"><h2>Schedule comparison <span class="r">clock vs what Aura holds</span></h2>
         <div style="overflow-x:auto"><table class="difftable"><thead><tr><th>Reminder</th><th>On device</th><th>On clock</th></tr></thead>
           <tbody id="diffBody"></tbody></table></div>
@@ -126,8 +238,9 @@ export function mountFrost(root: HTMLElement, authenticatedUser?: {displayName?:
 /* ================= shared state ================= */
 const CX=320, CY=320;
 const R_NUM=294, R_TICK_OUT=280, R_RIM=264, R_RING_OUT=242;
-const NOW_H=10.75;
-let DND=[22.5,7], WAKE=[7,22.5], dndOn=true;
+function getNowH(){const d=new Date();return d.getHours()+d.getMinutes()/60+(d.getSeconds()/3600);}
+let NOW_H=getNowH();
+let DND=[22.5,7], WAKE=[7,22.5], dndOn=false;
 function setDnd(from,to){DND=[from,to];WAKE=[to,from];}   // wake is the complement of DND
 
 /* ---- real device config (schema_ver 6) sent webapp -> device ---- */
@@ -270,6 +383,11 @@ window.addEventListener('frost-device-config',event=>{
 window.addEventListener('frost-device-config-saved',()=>{
   syncedConfigAvailable=true;
   if(page==='stats')renderStats();
+});
+window.addEventListener('frost-device-dnd-status',event=>{
+  const enabled=(event as CustomEvent<{ enabled?: boolean }>).detail?.enabled ?? false;
+  dndOn = Boolean(enabled);
+  if(page==='configure')renderConfigure();
 });
 window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
@@ -418,17 +536,23 @@ function drawClock(){
   drawZones(s);   // boundary spokes + corner icons, above the fills/rings
   for(let h=0;h<24;h+=1){const major=h%3===0;const[x0,y0]=pt(h,R_TICK_OUT-(major?12:8)),[x1,y1]=pt(h,R_TICK_OUT);
     s.appendChild(E('line',{x1:x0,y1:y0,x2:x1,y2:y1,class:'hourtick'+(major?' major':'')}));
-    if(major){const[lx,ly]=pt(h,R_NUM);const t=E('text',{x:lx,y:ly,class:'hourlbl'});t.textContent=hourLabel(h);s.appendChild(t);}}
+    if(major){
+      // Keep the top (midnight / 12 / 00) numeral above the callout so it stays readable
+      const labelR = (!HALF && h===0) ? R_NUM+6 : R_NUM;
+      const[lx,ly]=pt(h,labelR);
+      const t=E('text',{x:lx,y:ly,class:'hourlbl'});t.textContent=hourLabel(h);s.appendChild(t);
+    }}
   const rNow=ringRadius(Math.max(0,active.length-1))-BAND/2-6;   // just inside the innermost ring
   const [nx,ny]=pt(NOW_H,rNow);
   s.appendChild(E('circle',{cx:nx,cy:ny,r:5,class:'nowdot'}));
-  // centre readout: middle (full) or left-centre reading into the arc (side)
+  // centre readout: live clock (hr:min only) — middle (full) or left-centre (side)
+  // Use dedicated ids so the live timer can update without a full redraw.
   if(HALF){
-    const bt=E('text',{x:CXc+2,y:CYc+2,'text-anchor':'start'});bt.innerHTML=`<tspan style="font:800 18px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
+    const bt=E('text',{x:CXc+2,y:CYc+2,'text-anchor':'start',id:'liveClock'});bt.innerHTML=`<tspan style="font:800 18px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
     const total=active.reduce((a,c)=>a+c.times.length,0);
     const st=E('text',{x:CXc+2,y:CYc+18,'text-anchor':'start'});st.innerHTML=`<tspan style="fill:var(--muted);font:500 9px 'DM Sans';letter-spacing:.1em">${total} REMINDERS</tspan>`;s.appendChild(st);
   } else {
-    const bt=E('text',{x:CXc,y:CYc-1,'text-anchor':'middle'});bt.innerHTML=`<tspan style="font:800 19px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
+    const bt=E('text',{x:CXc,y:CYc-1,'text-anchor':'middle',id:'liveClock'});bt.innerHTML=`<tspan style="font:800 19px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
     const total=active.reduce((a,c)=>a+c.times.length,0);
     const st=E('text',{x:CXc,y:CYc+12,'text-anchor':'middle'});st.innerHTML=`<tspan style="fill:var(--muted);font:500 8px 'DM Sans';letter-spacing:.12em">${total} REMINDERS</tspan>`;s.appendChild(st);
   }
@@ -457,8 +581,11 @@ function drawClock(){
     if(c&&c.on&&c.times[sel.i]!=null){
       const idx=active.indexOf(c),r=ringRadius(idx),h=c.times[sel.i],dd=occDur(c,sel.i),mid=h+(dd/60)/2,col=c.k==='pomodoro'?zoneColor(h):cvar(c.color);
       const [hx,hy]=pt(mid,r);                          // knob sits on the arc itself
+      // Show full from–to only for Meditation, Healing and Pomodoro; otherwise exact start time only
+      const showRange = (c.k==='meditation'||c.k==='healing'||c.k==='pomodoro');
+      const timeStr = showRange ? `${fmt(h)} – ${fmt(h+dd/60)}` : fmt(h);
       // callout first, so the dot always draws on top of it
-      calloutAt(s, hx, hy, `${c.label}`, `${fmt(h)} – ${fmt(h+dd/60)}`, col);
+      calloutAt(s, hx, hy, `${c.label}`, timeStr, col);
       const g=E('g',{class:'handle'}); g.dataset.k=c.k; g.dataset.i=sel.i;
       g.style.setProperty('--c',col);
       g.appendChild(E('circle',{cx:hx,cy:hy,r:26,fill:'transparent',stroke:'transparent'}));  // big thumb target
@@ -469,11 +596,14 @@ function drawClock(){
       s.appendChild(g);
     }}
 }
-/* fixed callout pinned at the top of the clock — reflects the selected
-   reminder's colour, name and time; a faint leader points to its dot */
+/* Callout pinned near the top of the clock — placed below the 12/00 hour
+   label so the number stays visible. Reflects selected reminder colour, name and time. */
 function calloutAt(s,hx,hy,name,time,col){
   const w=Math.max(name.length*7.2, time.length*6.6)+22, hgt=36, PAD=8;
-  const bx=clamp(VBW/2-w/2, PAD, VBW-w-PAD), by=14;
+  // Sit just below the top hour numeral (R_NUM ≈ 294 → label near y≈26 on full dial)
+  // so 12 / 00 remains readable above the callout.
+  const by = HALF ? 14 : 48;
+  const bx=clamp(VBW/2-w/2, PAD, VBW-w-PAD);
   const g=E('g',{class:'callout'}); g.style.setProperty('--c',col);
   g.appendChild(E('rect',{x:bx,y:by,width:w,height:hgt,rx:9,class:'cbox'}));
   const t1=E('text',{x:bx+w/2,y:by+15,'text-anchor':'middle',class:'cname'});t1.setAttribute('style',`fill:${col}`);t1.textContent=name;
@@ -1080,11 +1210,75 @@ function diffRows(){
     }});
   body.innerHTML=rows.length?rows.join(''):`<tr><td colspan="3" class="muted" style="text-align:center;padding:20px">Clock and device match.</td></tr>`;
 }
+
+/* Shared schedule sync used by Device tab and Configure clock toolbar */
+let scheduleSyncInFlight=false;
+function setSyncButtonsBusy(busy){
+  scheduleSyncInFlight=!!busy;
+  ['dSync','cfgSync'].forEach(id=>{
+    const btn=document.getElementById(id);
+    if(!btn) return;
+    btn.disabled=busy || (id==='dSync' && !connected);
+    btn.textContent=id==='dSync'
+      ? (busy ? 'Syncing…' : 'Sync now')
+      : (busy ? 'Syncing…' : 'Sync Now');
+    btn.classList.toggle('is-syncing', busy);
+    if(id==='cfgSync'){
+      btn.setAttribute('aria-busy', busy ? 'true' : 'false');
+      btn.title = busy
+        ? 'Sending schedule to your FROST Aura…'
+        : 'Send current schedule to your FROST Aura';
+    }
+  });
+}
+async function syncScheduleToDevice(){
+  if(scheduleSyncInFlight) return;
+  if(!bleClient?.isConnected){
+    toast('Connect your FROST Aura device to sync the schedule.');
+    return;
+  }
+  setSyncButtonsBusy(true);
+  try{
+    const syncedConfig=toDeviceJSON();
+    await bleClient.sendJsonConfiguration(syncedConfig);
+    liveConfigSynced=true;
+    device=snapshot();
+    refreshDirty();
+    toast('Schedule synced to Aura');
+    if(deviceMac&&authenticatedUser?.uid&&authenticatedUser.email){
+      void saveDeviceConfig(deviceMac,syncedConfig,authenticatedUser.uid,authenticatedUser.email);
+    }
+  }catch(error){
+    toast(error instanceof Error?error.message:'Configuration upload failed');
+  }finally{
+    setSyncButtonsBusy(false);
+    if(page==='device') renderDevice();
+  }
+}
+
 function renderDevice(){
   document.getElementById('dState').textContent=connected?'Connected':'Offline';
   document.getElementById('dState').classList.toggle('ok',connected);
   document.getElementById('dConnect').textContent=connected?'Disconnect':'Connect';
-  document.getElementById('dSync').disabled=!connected;
+  // Preserve in-flight Syncing… label; otherwise reflect connection state
+  if(!scheduleSyncInFlight){
+    const dSync=document.getElementById('dSync');
+    if(dSync){
+      dSync.disabled=!connected;
+      dSync.textContent='Sync now';
+      dSync.classList.remove('is-syncing');
+    }
+    const cfgSync=document.getElementById('cfgSync');
+    if(cfgSync){
+      cfgSync.disabled=false;
+      cfgSync.textContent='Sync Now';
+      cfgSync.classList.remove('is-syncing');
+      cfgSync.setAttribute('aria-busy','false');
+      cfgSync.title='Send current schedule to your FROST Aura';
+    }
+  } else {
+    setSyncButtonsBusy(true);
+  }
   diffRows();
   document.getElementById('jsonOut').textContent=JSON.stringify(toDeviceJSON(),null,2);
 }
@@ -1103,6 +1297,8 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
       bleClient=await requestFrostDevice();
       connected=bleClient.isConnected;
       liveConfigSynced=false;
+      const renameInput=document.getElementById('dRenameInput');
+      if(renameInput) renameInput.value = bleClient.name || 'Frost 1';
       bleClient['device']?.addEventListener('gattserverdisconnected',()=>{
         // Preserve deviceMac for continued DB statistics after unexpected disconnect.
         bleClient=null; connected=false; liveConfigSynced=false;
@@ -1118,6 +1314,8 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
         deviceMac=mac;
         document.getElementById('dMac').textContent=mac;
         window.dispatchEvent(new CustomEvent('frost-device-mac',{detail:{macAddress:mac}}));
+        await bleClient.syncCurrentTime();
+        toast('Device time synchronized');
       }catch(error){
         document.getElementById('dMac').textContent=deviceMac||'Unavailable';
         toast(error instanceof Error?error.message:'MAC address could not be read');
@@ -1130,24 +1328,25 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
     toast(error instanceof Error?error.message:'BLE connection failed');
   }finally{button.disabled=false;}
 });
-document.getElementById('dSync').addEventListener('click',async()=>{
+document.getElementById('dRenameSave').addEventListener('click',async()=>{
   if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
-  const button=document.getElementById('dSync'); button.disabled=true;
-  try{
-    const syncedConfig=toDeviceJSON();
-    await bleClient.sendJsonConfiguration(syncedConfig);
-    liveConfigSynced=true;
-    device=snapshot(); renderDevice(); refreshDirty(); toast('Sent schema_ver 6 config to Aura');
-    if(deviceMac&&authenticatedUser?.uid&&authenticatedUser.email) void saveDeviceConfig(deviceMac,syncedConfig,authenticatedUser.uid,authenticatedUser.email);
-  }catch(error){toast(error instanceof Error?error.message:'Configuration upload failed');}
-  finally{button.disabled=false;renderDevice();}
+  const input=document.getElementById('dRenameInput');
+  const name=String(input?.value||'').trim();
+  if(!name){toast('Enter a device name first');input?.focus?.();return;}
+  const command=`DEVICE:NAME:SET:${name}`;
+  await runQuickCommand(command, `Device renamed to ${name}`);
 });
+document.getElementById('dSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
+document.getElementById('cfgSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('dExport').addEventListener('click',()=>{
   const blob=new Blob([JSON.stringify(toDeviceJSON(),null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url; link.download='frost-config.json'; link.click(); URL.revokeObjectURL(url);
   toast('frost-config.json downloaded');
 });
 document.getElementById('dReset').addEventListener('click',()=>{location.reload();});
+window.addEventListener('frost-device-bound',()=>{
+  void runQuickCommand('BIND:OK','Device binding confirmed on Aura');
+});
 window.addEventListener('frost:toast',event=>{
   const detail=(event as CustomEvent<{message?:string}>).detail;
   if(detail?.message)toast(detail.message);
@@ -1186,10 +1385,33 @@ window.addEventListener('frost-quick-action',event=>{
     if(password===null||ssid.includes('|')||password.includes('|')){toast('Wi-Fi values cannot contain |');return;}
     runQuickCommand(`WIFI:SET:${ssid}|${password}`,'Wi-Fi credentials saved');
   }
-  if(action.type==='dnd'){dndOn=!dndOn;setDnd(22.5,7);drawClock();toast(dndOn?'Do Not Disturb enabled':'Do Not Disturb disabled');}
+  if(action.type==='dnd'){
+    if(!bleClient?.isConnected){
+      toast('Connect a FROST Aura device first');
+      return;
+    }
+    const nextEnabled = !dndOn;
+    dndOn = nextEnabled;
+    setDnd(22.5,7);
+    drawClock();
+    const command = nextEnabled ? 'DND:ON' : 'DND:OFF';
+    void runQuickCommand(command, nextEnabled ? 'Do Not Disturb enabled' : 'Do Not Disturb disabled');
+    if(authenticatedUser?.uid){
+      void saveDndStatus(authenticatedUser.uid, deviceMac, nextEnabled).catch(()=>{
+        toast('DND status could not be saved to the cloud');
+      });
+    }
+  }
   if(action.type==='time'){
-    const now=new Date(),pad=value=>String(value).padStart(2,'0');
-    runQuickCommand(`SET ${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,'Device time synchronized');
+    void (async()=>{
+      if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
+      try{
+        await bleClient.syncCurrentTime();
+        toast('Device time synchronized');
+      }catch(error){
+        toast(error instanceof Error?error.message:'SET time failed');
+      }
+    })();
   }
   if(action.type==='update')runQuickCommand('OTA:START','Firmware update started');
 });
@@ -1399,5 +1621,36 @@ document.getElementById('auraInput').addEventListener('keydown',e=>{if(e.key==='
 applyMode();
 window.addEventListener('resize',applyMode);
 show('configure');
+
+/* Live centre clock — updates every 15 s (hr:min only, no seconds).
+   Prefer lightweight text/now-dot update; fall back to full redraw. */
+function tickLiveClock(){
+  const prevMin=Math.floor(NOW_H*60);
+  NOW_H=getNowH();
+  const curMin=Math.floor(NOW_H*60);
+  // Only refresh when the displayed minute changes
+  if(prevMin===curMin) return;
+  if(page!=='configure') return;
+  const live=document.getElementById('liveClock');
+  if(live){
+    const tspan=live.querySelector('tspan')||live;
+    tspan.textContent=fmt(NOW_H);
+  }
+  // Reposition the now-dot without a full redraw when possible
+  const dialEl=document.getElementById('dial');
+  const nowDot=dialEl&&dialEl.querySelector('.nowdot');
+  if(nowDot){
+    const active=CATS.filter(c=>c.on);
+    computeGeom(active.length);
+    const rNow=ringRadius(Math.max(0,active.length-1))-BAND/2-6;
+    const [nx,ny]=pt(NOW_H,rNow);
+    nowDot.setAttribute('cx',String(nx));
+    nowDot.setAttribute('cy',String(ny));
+  } else {
+    drawClock();
+  }
+}
+// Poll frequently enough to catch the minute rollover quickly
+setInterval(tickLiveClock,15000);
 
 }

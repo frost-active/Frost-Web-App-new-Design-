@@ -57,6 +57,7 @@ export default function DeviceBinding({ user, mode = 'home', onStateChange }: Pr
         if (existing.exists()) throw new Error('This device was bound by another account.');
         transaction.set(bindingRef, { macAddress, boundEmail: user.email, boundUid: user.uid, boundAt: serverTimestamp() });
       });
+      window.dispatchEvent(new CustomEvent('frost-device-bound', { detail: { macAddress, uid: user.uid, email: user.email } }));
     } catch (error) {
       setMessage(errorText(error));
       setState('other');

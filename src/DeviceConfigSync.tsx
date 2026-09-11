@@ -21,8 +21,24 @@ const configDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'use
 const deviceDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress));
 const historyCollection = (uid: string, macAddress: string) => collection(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress), 'configHistory');
 
+const resolveBoundMacAddress = async (uid: string): Promise<string | null> => {
+  const bindings = await getDocs(query(collection(firebaseDb, 'deviceBindings'), where('boundUid', '==', uid)));
+  const latest = bindings.docs
+    .map((binding) => binding.data() as { macAddress?: string; boundAt?: Timestamp | null })
+    .filter((binding): binding is { macAddress: string; boundAt?: Timestamp | null } => Boolean(binding.macAddress))
+    .sort((left, right) => (right.boundAt?.toMillis() ?? 0) - (left.boundAt?.toMillis() ?? 0))[0];
+
+  return latest?.macAddress ?? null;
+};
+
 export async function saveDailyGoal(uid: string, macAddress: string, dailyGoalMl: number): Promise<void> {
   await setDoc(deviceDocument(uid, macAddress), { dailyGoalMl: Math.max(0, Math.round(dailyGoalMl)) }, { merge: true });
+}
+
+export async function saveDndStatus(uid: string, macAddress: string | null, dndEnabled: boolean): Promise<void> {
+  const resolvedMac = macAddress || (await resolveBoundMacAddress(uid));
+  if (!resolvedMac) return;
+  await setDoc(deviceDocument(uid, resolvedMac), { dndEnabled: Boolean(dndEnabled) }, { merge: true });
 }
 
 export async function saveDeviceConfig(macAddress: string, config: DeviceConfig, uid: string, email: string): Promise<void> {
@@ -63,6 +79,7 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
 export function useDeviceConfig(macAddress: string | null, uid: string) {
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [dndEnabled, setDndEnabled] = useState<boolean>(false);
   const [loading, setLoading] = useState(Boolean(macAddress));
   const [error, setError] = useState<Error | null>(null);
 
@@ -73,7 +90,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
     let unsubscribeConfig: (() => void) | undefined;
     let unsubscribeDevice: (() => void) | undefined;
     let latestConfigData: DeviceConfigDocument | undefined;
-    let latestDeviceData: { dailyGoalMl?: number } | undefined;
+    let latestDeviceData: { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
 
     const withStoredDailyGoal = (baseConfig: DeviceConfig | null): DeviceConfig | null => {
       if (!baseConfig) return null;
@@ -96,12 +113,14 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       if (!latestConfigData) {
         setConfig(null);
         setLastSyncedAt(null);
+        setDndEnabled(false);
         setLoading(false);
         return;
       }
 
       const mergedConfig = withStoredDailyGoal(latestConfigData.config);
       setConfig(mergedConfig);
+      setDndEnabled(Boolean(latestDeviceData?.dndEnabled));
       setLastSyncedAt(latestConfigData.lastSyncedAt instanceof Timestamp ? latestConfigData.lastSyncedAt.toDate() : null);
       setLoading(false);
     };
@@ -131,7 +150,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       });
 
       unsubscribeDevice = onSnapshot(deviceDocument(uid, resolvedMac), (snapshot) => {
-        latestDeviceData = snapshot.data() as { dailyGoalMl?: number } | undefined;
+        latestDeviceData = snapshot.data() as { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
         applyConfigState();
       }, (snapshotError) => {
         setConfig(null); setLastSyncedAt(null); setLoading(false);
@@ -151,5 +170,5 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
     };
   }, [macAddress, uid]);
 
-  return { config, lastSyncedAt, loading, error };
+  return { config, lastSyncedAt, dndEnabled, loading, error };
 }
