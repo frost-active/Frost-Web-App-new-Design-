@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, doc, getDoc, getDocs, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
 import type { FrostBleClient } from './ble';
 import { sanitizeMac } from './components/DeviceBinding';
 import { firebaseDb } from './firebase';
@@ -121,6 +121,17 @@ async function collectFallback(client: FrostBleClient): Promise<string[]> {
 const statisticsCollection = (macAddress: string) => collection(firebaseDb, 'devices', sanitizeMac(macAddress), 'statistics');
 const deviceDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress));
 
+async function resolveBoundMacAddress(uid?: string): Promise<string | null> {
+  if (!uid) return null;
+  const bindings = await getDocs(query(collection(firebaseDb, 'deviceBindings'), where('boundUid', '==', uid)));
+  const latest = bindings.docs
+    .map((binding) => binding.data() as { macAddress?: string; boundAt?: { toMillis?: () => number } | null })
+    .filter((binding): binding is { macAddress: string; boundAt?: { toMillis?: () => number } | null } => Boolean(binding.macAddress))
+    .sort((left, right) => ((right.boundAt?.toMillis?.() ?? 0) - (left.boundAt?.toMillis?.() ?? 0)))[0];
+
+  return latest?.macAddress ?? null;
+}
+
 export async function syncDeviceStatistics(client: FrostBleClient, macAddress: string, mode: StatisticsMode = 'today', uid?: string): Promise<DeviceStatistics[]> {
   let lines: string[];
   try { lines = await collectProtocol(client, mode); } catch { lines = await collectFallback(client); }
@@ -139,12 +150,32 @@ export async function syncDeviceStatistics(client: FrostBleClient, macAddress: s
   return parsed;
 }
 
-export function subscribeDeviceStatistics(macAddress: string | null, onChange: (records: DeviceStatistics[]) => void, onError?: (error: Error) => void): () => void {
-  if (!macAddress) { onChange([]); return () => undefined; }
-  return onSnapshot(statisticsCollection(macAddress), (snapshot) => {
-    const records = snapshot.docs.map((item) => item.data() as DeviceStatistics).sort((left, right) => left.date.localeCompare(right.date));
-    onChange(records);
-  }, (error) => onError?.(error instanceof Error ? error : new Error('Unable to load device statistics.')));
+export function subscribeDeviceStatistics(macAddress: string | null, onChange: (records: DeviceStatistics[]) => void, onError?: (error: Error) => void, uid?: string): () => void {
+  let cancelled = false;
+  let unsubscribe: (() => void) = () => undefined;
+
+  const start = async () => {
+    const resolvedMac = macAddress || (await resolveBoundMacAddress(uid));
+    if (cancelled || !resolvedMac) {
+      if (!cancelled) onChange([]);
+      return;
+    }
+
+    unsubscribe = onSnapshot(statisticsCollection(resolvedMac), (snapshot) => {
+      const records = snapshot.docs.map((item) => item.data() as DeviceStatistics).sort((left, right) => left.date.localeCompare(right.date));
+      onChange(records);
+    }, (error) => {
+      onError?.(error instanceof Error ? error : new Error('Unable to load device statistics.'));
+      if (!cancelled) onChange([]);
+    });
+  };
+
+  void start();
+
+  return () => {
+    cancelled = true;
+    unsubscribe();
+  };
 }
 
 export function useDeviceStatistics(macAddress: string | null) {

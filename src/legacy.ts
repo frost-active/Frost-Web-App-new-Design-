@@ -77,7 +77,7 @@ const frostMarkup = String.raw`<div class="wrap">
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="card"><h2>Overview <span class="r" id="rangeLbl">today</span></h2>
           <div class="kpi" id="kpi"></div></div>
-        <div class="card"><h2>Water trend <span class="r">days at or above goal in blue</span></h2>
+        <div class="card"><h2>Water trend <span class="r" id="waterTrendLbl">days at or above daily goal in blue</span></h2>
           <div class="bars" id="waterBars"></div><div class="xlab" id="waterLab"></div></div>
       </div>
     </div>
@@ -172,7 +172,7 @@ function buildCATS(J){
       times:[R.meditation.sh+R.meditation.sm/60], days:dayNums(R.meditation.days) },
     { k:'custom', label:'Custom', color:'--c-custom', src:'custom', type:'ev', on:R.custom.enabled, dur:1,
       groups:R.custom.events.map(e=>({name:e.label,times:[e.h+e.m/60],days:dayNums(e.days),enabled:e.enabled,dur:e.show_ms/60000})) },
-    { k:'clean', label:'Bottle', color:'--c-clean', src:'bottle_clean',
+    { k:'clean', label:'Bottle Clean', color:'--c-clean', src:'bottle_clean',
       type:'win', mode:'fixed', on:J.bottle_clean.enabled, from:0, to:24, every:1,
       dur:J.bottle_clean.display_ms/60000, everyDays:J.bottle_clean.interval_days,
       times:[J.bottle_clean.hour+J.bottle_clean.minute/60], days:[0,1,2,3,4,5,6] },
@@ -198,12 +198,10 @@ function materialise(category){
 function buildActiveCategories(J){
   const categories=buildCATS(J);
   categories.forEach(category=>{if(category.type==='win'&&category.mode==='interval')category.times=materialise(category);});
-  categories.filter(category=>['water','eye','stretch','walk'].includes(category.k)).forEach(category=>{category.mode='fixed';});
   categories.forEach(category=>{if(category.type==='ev'){category.times=[];category.labels=[];category.gi=[];category.groups?.forEach((group,groupIndex)=>group.times.forEach(time=>{category.times.push(+time.toFixed(4));category.labels.push(group.name);category.gi.push(groupIndex);}));}});
   return categories;
 }
 let CATS=buildActiveCategories(RAW);
-const RATE={water:.72,meds:.93,eye:.44,stretch:.6,walk:.55,meditation:.5,custom:.7,clean:.8,healing:.5,pomodoro:.6};
 /* per-occurrence duration: pomodoro laps can each be a different length */
 const occDur=(c,i)=>(c.durs&&c.durs[i]!=null)?c.durs[i]:c.dur;
 /* pomodoro ring shows only when the feature and lap-mode are both on */
@@ -275,10 +273,19 @@ window.addEventListener('frost-device-config-saved',()=>{
 });
 window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
+  if(mac) deviceMac=mac;
   statisticsUnsubscribe();
-  statisticsUnsubscribe=subscribeDeviceStatistics(mac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();});
+  // Always subscribe with the bound device MAC (when known) + user so stats remain available after disconnect.
+  statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
 });
-window.addEventListener('frost-device-disconnected',()=>{statisticsUnsubscribe();statisticsUnsubscribe=()=>undefined;storedStatistics=[];});
+window.addEventListener('frost-device-disconnected',()=>{
+  // Keep the last known deviceMac so DB statistics for the bound device continue to load.
+  // Do not clear storedStatistics or force a null-MAC subscription — show what is already in the database.
+  if(deviceMac){
+    statisticsUnsubscribe();
+    statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
+  }
+});
 
 const NS='http://www.w3.org/2000/svg';
 const E=(n,a={})=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
@@ -320,7 +327,6 @@ const inDnd=h=>{const[a,b]=DND;return a<b?(h>=a&&h<b):(h>=a||h<b);};
 const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function snapshot(){return CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));}
-function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
 function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._x);t._x=setTimeout(()=>t.classList.remove('show'),2200);}
 
 /* ================= CONFIGURE (clock) ================= */
@@ -500,6 +506,17 @@ function drawInspect(){
   const sub=(c.labels&&c.labels[sel.i])?` — ${c.labels[sel.i]}`:'';
   const isLabelled = c.k==='meds'||c.k==='custom';
   const medicationGroup = c.k==='meds' && c.groups[c.gi[sel.i]] ? c.groups[c.gi[sel.i]] : null;
+  const customGroup = c.k==='custom' && c.groups[c.gi[sel.i]] ? c.groups[c.gi[sel.i]] : null;
+  const selectedGroup = medicationGroup || customGroup;
+  const isBottleClean = c.k==='clean';
+  const isWindowReminder = c.type==='win' && ['water','eye','stretch','walk','clean'].includes(c.k);
+  const canEditActiveDays = !isBottleClean && (selectedGroup || ['water','eye','stretch','walk','meditation','healing'].includes(c.k));
+  const activeDays = selectedGroup ? selectedGroup.days : (c.days || []);
+  const activeDaysPicker = canEditActiveDays ? `
+    <div class="fld"><label>Active days</label><div class="day-picker">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day,index)=>`<button type="button" class="day-chip ${activeDays.includes(index)?'active':''}" data-day="${index}" aria-pressed="${activeDays.includes(index)}">${day}</button>`).join('')}</div></div>` : '';
+  const intervalDaysField = isBottleClean ? `
+    <div class="fld"><label>Interval days</label><div class="ctl step" id="intervalDays"><button data-d="-1">−</button><output>${Math.max(1, Number(c.everyDays || 1))}</output><button data-d="1">+</button></div>
+      <div class="applyall">Set how many days between each Bottle Clean reminder.</div></div>` : '';
   const labelField = isLabelled ? `
     <div class="fld"><label>Label <span class="cc" id="cc">${(c.labels[sel.i]||'').length}/25</span></label>
       <div class="ctl"><input type="text" id="rlabel" maxlength="25" value="${esc(c.labels[sel.i]||'')}"
@@ -511,14 +528,12 @@ function drawInspect(){
         <div class="fld"><label>Start date</label><input type="date" id="medStart" value="${medicationGroup.start||''}"></div>
         <div class="fld"><label>End date</label><input type="date" id="medEnd" value="${medicationGroup.end||''}"></div>
       </div>
-      <div class="fld"><label>Active days</label><div class="day-picker">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day,index)=>`<button type="button" class="day-chip ${medicationGroup.days.includes(index)?'active':''}" data-day="${index}" aria-pressed="${medicationGroup.days.includes(index)}">${day}</button>`).join('')}</div></div>
     </div>` : '';
   const perOcc = !!c.durs;
   const durNote = perOcc
     ? `Length of <b>this ${c.label.toLowerCase()} window</b>`
     : `Sets the length for <b>all ${c.times.length} ${c.label}</b> reminders`;
-   const isWindowReminder = c.type==='win' && ['water','eye','stretch','walk'].includes(c.k);
-  const isMedication = c.k==='meds';
+   const isMedication = c.k==='meds';
   const isCustomReminder = c.k==='custom';
   const scheduleSummary = isWindowReminder || isMedication ? `At ${fmt(h)} · reminder` : '';
   const modeEditor = isWindowReminder ? uiTimeField('absoluteTime','Reminder time',h) : `
@@ -542,6 +557,7 @@ function drawInspect(){
     <div class="meta">${modeLabel(c)} · ${c.type==='lap'?'lap':'reminder'} ${sel.i+1} of ${c.times.length} · <span style="color:${col}">drag the handle to move</span></div>
     ${labelField}
     ${medicationSchedule}
+    ${isBottleClean ? intervalDaysField : activeDaysPicker}
     ${modeEditor}
     ${hydrationGoal}
     ${isWindowReminder||c.k==='pomodoro'||isCustomReminder?'':`<div class="fld"><label>Duration</label><div class="ctl step" id="dur"><button data-d="-1">−</button><output>${dd} min</output><button data-d="1">+</button></div>
@@ -560,11 +576,23 @@ function drawInspect(){
   if(medicationGroup){
     box.querySelector('#medStart').addEventListener('change',e=>{medicationGroup.start=e.target.value;});
     box.querySelector('#medEnd').addEventListener('change',e=>{medicationGroup.end=e.target.value;});
+  }
+  if(canEditActiveDays){
+    const dayList = selectedGroup ? selectedGroup.days : c.days;
     box.querySelectorAll('.day-chip').forEach(button=>button.addEventListener('click',()=>{
-      const day=Number(button.dataset.day), index=medicationGroup.days.indexOf(day);
-      if(index>=0)medicationGroup.days.splice(index,1); else medicationGroup.days.push(day);
-      medicationGroup.days.sort((a,b)=>a-b); renderConfigure();
+      const day=Number(button.dataset.day), index=dayList.indexOf(day);
+      if(index>=0)dayList.splice(index,1); else dayList.push(day);
+      dayList.sort((a,b)=>a-b); renderConfigure();
     }));
+  }
+  if(isBottleClean){
+    const intervalControl=box.querySelector('#intervalDays');
+    intervalControl?.addEventListener('click',e=>{
+      const b=e.target.closest('button'); if(!b) return;
+      const delta=Number(b.dataset.d||0);
+      c.everyDays = Math.max(1, Number(c.everyDays || 1) + delta);
+      renderConfigure();
+    });
   }
   const updateAbsoluteTime=(nv)=>{
     if(c.durs){ // keep durs paired with times through the sort
@@ -682,11 +710,44 @@ dial.addEventListener('pointerup',()=>{if(!drag)return;
 dial.addEventListener('click',e=>{const p=e.target.closest('.seg');if(!p)return;sel={k:p.dataset.k,i:+p.dataset.i};renderConfigure();maybeScroll();});
 
 /* ================= STATISTICS ================= */
-/* real device data (from a synced Statistics DB record) is used wherever it
-   exists for the active range; the deterministic simulated numbers below
-   remain only as a fallback for categories/ranges nothing has synced yet. */
+/* Only real data from the Statistics DB is shown. No simulated / dummy numbers.
+   Device protocol (STATS_BEGIN:v1) stores per-day:
+     Hydration: ML, ACK, MISS   (+ hyd_goal_ml when known)
+     Stretch / Eye break / Walk / Meditation: ACK, MISS
+   Acknowledgement % = ACK / (ACK + MISS). When both are 0, show 0%.
+   Hydration period goals: day = daily, week = daily×7, month = daily×daysInMonth. */
 const STAT_FIELD={water:'hyd',meds:'med',eye:'eye',stretch:'str',walk:'walk',meditation:'medit',custom:'cust'};
 function hasRealStats(){ return storedStatistics.length>0; }
+function parseStatDate(value){
+  if(!value) return null;
+  const raw=String(value);
+  if(/^\d{8}$/.test(raw)) return new Date(raw.slice(0,4)+'-'+raw.slice(4,6)+'-'+raw.slice(6,8)+'T00:00:00');
+  const d=new Date(raw.includes('T')?raw:raw+'T00:00:00');
+  return Number.isNaN(d.getTime())?null:d;
+}
+function daysInMonthForStats(){
+  const latest=storedStatistics.length?storedStatistics[storedStatistics.length-1]:null;
+  const src=parseStatDate(latest?.date) || new Date();
+  return new Date(src.getFullYear(), src.getMonth()+1, 0).getDate();
+}
+function dailyHydrationGoal(){
+  const water=CATS.find(c=>c.k==='water');
+  const latest=storedStatistics.length?storedStatistics[storedStatistics.length-1]:null;
+  const fromRecord=Number(latest?.hyd_goal_ml);
+  if(Number.isFinite(fromRecord)&&fromRecord>0) return fromRecord;
+  const fromCat=Number(water?.goal);
+  if(Number.isFinite(fromCat)&&fromCat>0) return fromCat;
+  return 2000;
+}
+function periodHydrationGoal(daily){
+  if(range==='week') return daily*7;
+  if(range==='month') return daily*daysInMonthForStats();
+  return daily;
+}
+function ackPct(ack,miss){
+  const a=Math.max(0,Number(ack)||0), m=Math.max(0,Number(miss)||0), due=a+m;
+  return due?a/due:0;
+}
 function statRecordsForRange(){
   if(!storedStatistics.length) return [];
   if(range==='day') return storedStatistics.slice(-1);
@@ -695,50 +756,51 @@ function statRecordsForRange(){
 }
 function realDayCounts(catKey){
   const field=STAT_FIELD[catKey];
-  if(!field || !hasRealStats()) return null;
+  if(!field || !hasRealStats()) return {ack:0, miss:0, due:0};
   const today=storedStatistics[storedStatistics.length-1];
-  if(!today) return null;
-  const ack=Number(today[field+'_ack']||0), miss=Number(today[field+'_miss']||0);
+  if(!today) return {ack:0, miss:0, due:0};
+  const ack=Math.max(0,Number(today[field+'_ack']||0)), miss=Math.max(0,Number(today[field+'_miss']||0));
   return {ack, miss, due:ack+miss};
 }
 function waterSeriesForRange(){
-  const n=range==='day'?1:range==='week'?7:30, water=CATS.find(c=>c.k==='water');
   const records=statRecordsForRange();
-  if(hasRealStats() && records.length){
-    const goal=Number(records[records.length-1].hyd_goal_ml)||water.goal;
-    return {series:records.map(r=>Number(r.hyd_ml||0)), goal, dateLabels:records.map(r=>r.date)};
+  const daily=dailyHydrationGoal();
+  const period=periodHydrationGoal(daily);
+  if(records.length){
+    return {series:records.map(r=>Number(r.hyd_ml||0)), daily, period, dateLabels:records.map(r=>r.date)};
   }
-  const goal=water.goal;
-  const r=rng(4242+n);const series=[];for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.6:1;series.push(Math.round(water.times.length*250*RATE.water*dip*(0.8+r()*0.45)/50)*50);}
-  return {series, goal, dateLabels:null};
+  if(range==='day') return {series:[0], daily, period, dateLabels:null};
+  return {series:[], daily, period, dateLabels:null};
 }
-function catStat(c){                 // real data first, simulated fallback per range
+function catStat(c){
   const field=STAT_FIELD[c.k];
-  if(field && hasRealStats()){
-    const records=statRecordsForRange();
-    let done=0,due=0;
-    records.forEach(r=>{
-      const ack=Number(r[field+'_ack']||0), miss=Number(r[field+'_miss']||0);
-      done+=ack; due+=ack+miss;
-    });
-    return {rate:due?done/due:0, done, due};
-  }
-  if(range==='day'){const due=c.times.filter(h=>h<NOW_H).length;return {rate:RATE[c.k],done:Math.round(due*RATE[c.k]),due};}
-  const n=range==='week'?7:30, r=rng(97*c.k.length+ n);
-  let d=0,t=0; for(let i=0;i<n;i++){const dip=(i%7===0||i%7===6)?.55:1;const due=c.times.length;const done=Math.round(due*RATE[c.k]*dip*(0.8+r()*0.4));d+=Math.min(done,due);t+=due;}
-  return {rate:t?d/t:0,done:d,due:t};
+  if(!field || !hasRealStats()) return {rate:0, done:0, due:0, miss:0};
+  const records=statRecordsForRange();
+  if(!records.length) return {rate:0, done:0, due:0, miss:0};
+  let done=0,miss=0;
+  records.forEach(r=>{
+    done+=Math.max(0,Number(r[field+'_ack']||0));
+    miss+=Math.max(0,Number(r[field+'_miss']||0));
+  });
+  const due=done+miss;
+  return {rate:due?done/due:0, done, due, miss};
+}
+function overallAdherence(){
+  const active=CATS.filter(c=>c.on && STAT_FIELD[c.k]);
+  let done=0,due=0;
+  active.forEach(c=>{ const st=catStat(c); done+=st.done; due+=st.due; });
+  return {rate:due?done/due:0, done, due, cats:active.length};
 }
 function ringChart(){
   const s=document.getElementById('ringChart');s.innerHTML='';
-  const active=CATS.filter(c=>c.on), cx=150,cy=150; let R=132; const step=Math.min(16,(R-40)/active.length);
+  const active=CATS.filter(c=>c.on), cx=150,cy=150; let R=132; const step=Math.min(16,(R-40)/Math.max(active.length,1));
   const angFull=f=>-Math.PI/2 + f*2*Math.PI;
   const path=(r,f)=>{f=Math.max(0.0001,Math.min(.9999,f));const a0=-Math.PI/2,a1=angFull(f);const large=f>.5?1:0;
     return `M${cx+r*Math.cos(a0)} ${cy+r*Math.sin(a0)} A${r} ${r} 0 ${large} 1 ${cx+r*Math.cos(a1)} ${cy+r*Math.sin(a1)}`;};
-  let sumR=0;
-  active.forEach((c,i)=>{const r=R-i*step,st=catStat(c);sumR+=st.rate;
+  active.forEach((c,i)=>{const r=R-i*step,st=catStat(c);
     s.appendChild(E('circle',{cx,cy,r,class:'rtrack','stroke-width':step-4}));
     s.appendChild(E('path',{d:path(r,st.rate),class:'rval',stroke:cvar(c.color),'stroke-width':step-4}));});
-  const overall=active.length?Math.round(sumR/active.length*100):0;
+  const overall=Math.round(overallAdherence().rate*100);
   const t=E('text',{x:cx,y:cy-4,'text-anchor':'middle'});t.innerHTML=`<tspan style="font:800 30px Syne;fill:var(--ink)">${overall}%</tspan>`;s.appendChild(t);
   const t2=E('text',{x:cx,y:cy+16,'text-anchor':'middle'});t2.innerHTML=`<tspan style="fill:var(--muted);font:500 10px 'DM Sans';letter-spacing:.1em">ADHERENCE</tspan>`;s.appendChild(t2);
 }
@@ -748,167 +810,175 @@ function donut(pct,color){
     <circle class="fg" cx="23" cy="23" r="${R}" stroke="${color}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/></svg>`;
 }
 function kpis(){
-  const {series, goal, dateLabels} = waterSeriesForRange();
-  const count = series.length || 1;
-  const avg=Math.round(series.reduce((a,b)=>a+b,0)/count), met=series.filter(v=>v>=goal).length;
-  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=goal)streak++;else break;}
-  const active=CATS.filter(c=>c.on);let sr=0;active.forEach(c=>sr+=catStat(c).rate);const adh=active.length?Math.round(sr/active.length*100):0;
-
+  const {series, daily, period, dateLabels} = waterSeriesForRange();
+  const count = series.length;
+  const total=series.reduce((a,b)=>a+b,0);
+  const met=series.filter(v=>v>=daily).length;
+  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=daily)streak++;else break;}
+  const adh=Math.round(overallAdherence().rate*100);
+  const rawPct=period?Math.round(total/period*100):0;
+  const fillPct=clamp(rawPct,0,100);
+  const goalName=range==='day'?'daily goal':range==='week'?'weekly goal':'monthly goal';
+  const intakeLabel=range==='day'?'Intake':range==='week'?'Weekly intake':'Monthly intake';
+  const daysLabel=range==='month'?daysInMonthForStats():range==='week'?7:1;
   const teal=cvar('--teal'), sky=cvar('--sky');
-  const fillPct=clamp(Math.round(avg/goal*100),0,100);
-  // streak dots: light `streak` of up to a sensible cap
   const cap=Math.max(series.length,streak,6), shown=Math.min(cap,14);
   let flames='';for(let i=0;i<shown;i++)flames+=`<span class="${i<streak?'lit':''}"></span>`;
 
   document.getElementById('kpi').innerHTML=`
     <div class="k">
       <div class="gfx"><div class="glass"><i style="height:${fillPct}%"></i></div></div>
-      <div class="txt"><p>Avg intake</p><b>${avg}<small> ml</small></b><small class="sub">${fillPct}% of ${goal} ml goal</small></div></div>
+      <div class="txt"><p>${intakeLabel}</p><b>${Math.round(total)}<small> ml</small></b><small class="sub">${rawPct}% of ${period} ml ${goalName}${range!=='day'?` <span style="opacity:.7">(${daily} × ${daysLabel})</span>`:''}</small></div></div>
     <div class="k">
-      <div class="gfx">${donut(series.length?met/series.length*100:0,sky)}<div class="dlabel">${met}/${series.length}</div></div>
-      <div class="txt"><p>Goal met</p><b>${met}<small>/${series.length}</small></b><small class="sub">days at or above</small></div></div>
+      <div class="gfx">${donut(count?met/count*100:0,sky)}<div class="dlabel">${met}/${count||0}</div></div>
+      <div class="txt"><p>Goal met</p><b>${met}<small>/${count||0}</small></b><small class="sub">days at or above ${daily} ml</small></div></div>
     <div class="k">
       <div class="gfx">${donut(adh,teal)}<div class="dlabel">${adh}%</div></div>
-      <div class="txt"><p>Adherence</p><b>${adh}%</b><small class="sub">all categories</small></div></div>
+      <div class="txt"><p>Adherence</p><b>${adh}%</b><small class="sub">ACK / (ACK + MISS)</small></div></div>
     <div class="k">
       <div class="gfx"><div class="flames">${flames}</div></div>
-      <div class="txt"><p>Streak</p><b>${streak}</b><small class="sub">consecutive days</small></div></div>`;
+      <div class="txt"><p>Streak</p><b>${streak}</b><small class="sub">consecutive days ≥ ${daily} ml</small></div></div>`;
 
-  const mx=Math.max(...series,goal,1);
-  document.getElementById('waterBars').innerHTML=series.map(v=>`<div class="b ${v>=goal?'hi':''}"><i style="height:${8+v/mx*88}px" title="${v} ml"></i></div>`).join('');
-  const D=['S','M','T','W','T','F','S'];
-  document.getElementById('waterLab').innerHTML = dateLabels
-    ? dateLabels.map(d=>`<span>${range==='day'?'today':d.slice(5)}</span>`).join('')
-    : series.map((_,i)=>`<span>${series.length===1?'today':series.length===7?D[i]:(i%5===0?i+1:'')}</span>`).join('');
-  document.getElementById('rangeLbl').textContent=range==='day'?'today':range==='week'?'last 7 days':'last 30 days';
+  const trendLbl=document.getElementById('waterTrendLbl');
+  if(trendLbl) trendLbl.textContent=`days at or above ${daily} ml daily goal in blue`;
+
+  if(!series.length){
+    document.getElementById('waterBars').innerHTML='<div class="ackEmpty" style="padding:12px 0">No water data in this range.</div>';
+    document.getElementById('waterLab').innerHTML='';
+  } else {
+    const mx=Math.max(...series,daily,1);
+    document.getElementById('waterBars').innerHTML=series.map(v=>`<div class="b ${v>=daily?'hi':''}"><i style="height:${8+v/mx*88}px" title="${v} ml of ${daily} ml daily"></i></div>`).join('');
+    document.getElementById('waterLab').innerHTML = dateLabels
+      ? dateLabels.map(d=>`<span>${range==='day'?'today':String(d).length>=10?String(d).slice(5):d}</span>`).join('')
+      : series.map((_,i)=>`<span>${series.length===1?'today':''}</span>`).join('');
+  }
+  document.getElementById('rangeLbl').textContent=range==='day'?'today':range==='week'?'last 7 days':'this month';
 }
 function digest(){
   const active=CATS.filter(c=>c.on);
-  const stats=active.map(c=>({c,rate:catStat(c).rate})).sort((a,b)=>b.rate-a.rate);
-  const best=stats[0], worst=stats[stats.length-1];
-  const overall=Math.round(stats.reduce((a,s)=>a+s.rate,0)/stats.length*100);
-  const period=range==='day'?'today':range==='week'?'this week':'this month';
-  const win=range==='day'?'today':range==='week'?'over the last 7 days':'over the last 30 days';
+  const hasData=hasRealStats() && statRecordsForRange().length>0;
 
-  // water goal picture — real synced series when available, simulated fallback otherwise
-  const {series, goal} = waterSeriesForRange();
-  const n=series.length||1;
-  const met=series.filter(v=>v>=goal).length;
-  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=goal)streak++;else break;}
-
-  // ---- GOOD line ----
-  let good;
-  if(overall>=80){
-    good=`Strong run ${win} — <b>${overall}%</b> of reminders acted on overall, led by <b>${best.c.label}</b> at <b>${Math.round(best.rate*100)}%</b>.`;
-  } else if(range==='day'){
-    good=`<b>${best.c.label}</b> is your best today at <b>${Math.round(best.rate*100)}%</b>.`+(streak?' Water goal already on track.':'');
-  } else {
-    const streakBit = streak>1 ? ' — <b>'+streak+'</b> in a row right now' : '';
-    const waterBit = met ? ', and you hit the water goal on <b>'+met+'</b> of <b>'+n+'</b> days'+streakBit : '';
-    good=`<b>${best.c.label}</b> held up best ${win} at <b>${Math.round(best.rate*100)}%</b>${waterBit}.`;
+  if(!hasData || !active.length){
+    document.getElementById('digest').innerHTML=`
+      <div class="ln good"><span class="ic">✓</span><span>No statistics stored yet for this range.</span></div>
+      <div class="ln work"><span class="ic">!</span><span>Connect your FROST Aura and tap <b>Sync statistics</b> to pull data from the device into the database.</span></div>`;
+    return;
   }
 
-  // ---- NEEDS WORK line ----
+  const stats=active.map(c=>({c,st:catStat(c)})).sort((a,b)=>b.st.rate-a.st.rate);
+  const best=stats[0], worst=stats[stats.length-1];
+  const overall=Math.round(overallAdherence().rate*100);
+  const win=range==='day'?'today':range==='week'?'over the last 7 days':'this month';
+
+  const {series, daily, period} = waterSeriesForRange();
+  const n=series.length||0;
+  const total=series.reduce((a,b)=>a+b,0);
+  const waterPct=period?Math.round(total/period*100):0;
+  const met=series.filter(v=>v>=daily).length;
+  let streak=0;for(let i=series.length-1;i>=0;i--){if(series[i]>=daily)streak++;else break;}
+
+  let good;
+  if(overall>=80){
+    good=`Strong run ${win} — <b>${overall}%</b> of reminders acknowledged, led by <b>${best.c.label}</b> at <b>${Math.round(best.st.rate*100)}%</b> (${best.st.done}/${best.st.due}). Hydration is at <b>${waterPct}%</b> of the ${range==='day'?'daily':'period'} goal.`;
+  } else if(range==='day'){
+    good=`<b>${best.c.label}</b> is your best today at <b>${Math.round(best.st.rate*100)}%</b> (${best.st.done} ack / ${best.st.due} due). Hydration ${Math.round(total)} ml · <b>${waterPct}%</b> of ${daily} ml.`+(streak?' Water goal already on track.':'');
+  } else {
+    const streakBit = streak>1 ? ' — <b>'+streak+'</b> in a row right now' : '';
+    const waterBit = `, hydration <b>${Math.round(total)}</b> ml · <b>${waterPct}%</b> of ${period} ml (${met}/${n} days at daily goal)${streakBit}`;
+    good=`<b>${best.c.label}</b> held up best ${win} at <b>${Math.round(best.st.rate*100)}%</b> (${best.st.done}/${best.st.due})${waterBit}.`;
+  }
+
   let work;
-  const wpc=Math.round(worst.rate*100);
+  const wpc=Math.round(worst.st.rate*100);
   const shortDays=n-met;
   const waterNote = (shortDays>0 && range!=='day')
-    ? 'Water fell short of goal on <b>'+shortDays+'</b> day'+(shortDays===1?'':'s')+'.'
-    : "Consider moving it to a time you're less likely to miss.";
-  if(worst.rate>=0.75) work=`Nothing badly slipping — even <b>${worst.c.label}</b> sits at <b>${wpc}%</b>. Keep the rhythm.`;
-  else if(worst.c.k==='eye') work=`<b>Eye breaks</b> are the weak spot at <b>${wpc}%</b> — they come often, so try acting on just the next one rather than all of them.`;
-  else work=`<b>${worst.c.label}</b> needs attention — only <b>${wpc}%</b> ${range==='day'?'so far today':win}. ${waterNote}`;
+    ? 'Water fell short of the daily goal on <b>'+shortDays+'</b> day'+(shortDays===1?'':'s')+'.'
+    : waterPct<100 ? 'Hydration is at <b>'+waterPct+'%</b> of the '+ (range==='day'?'daily':'period') +' goal.' : 'Keep the rhythm.';
+  if(worst.st.due===0 && overall===0) work=`No acknowledgements recorded yet ${win}. ACK=0, MISS=0 across categories. ${waterNote}`;
+  else if(worst.st.rate>=0.75) work=`Nothing badly slipping — even <b>${worst.c.label}</b> sits at <b>${wpc}%</b> (${worst.st.done} ack, ${worst.st.miss} miss). ${waterNote}`;
+  else if(worst.c.k==='eye') work=`<b>Eye breaks</b> are the weak spot at <b>${wpc}%</b> (${worst.st.done} ack, ${worst.st.miss} miss) — they come often, so try acting on just the next one.`;
+  else work=`<b>${worst.c.label}</b> needs attention — <b>${wpc}%</b> ${range==='day'?'so far today':win} (${worst.st.done} ack, ${worst.st.miss} miss). ${waterNote}`;
 
   document.getElementById('digest').innerHTML=`
     <div class="ln good"><span class="ic">✓</span><span>${good}</span></div>
     <div class="ln work"><span class="ic">!</span><span>${work}</span></div>`;
 }
-function occAck(catKey,occIdx,dayOffset){
-  let h=0; for(let i=0;i<catKey.length;i++) h=(h*31+catKey.charCodeAt(i))>>>0;
-  const r=rng(h ^ (occIdx*2654435761) ^ (dayOffset*40503) ^ 0x9e3779b9);
-  r();r();r(); return r() < (RATE[catKey]??.6);
-}
-function dayRate(catKey,dayOffset){
-  let h=0; for(let i=0;i<catKey.length;i++) h=(h*31+catKey.charCodeAt(i))>>>0;
-  const r=rng(h ^ (dayOffset*2246822519) ^ 0x85ebca6b);
-  r();r();r(); const base=RATE[catKey]??.6;
-  return Math.max(.05,Math.min(1,base+(r()-.5)*.8));
-}
 const CHECK_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" fill="currentColor" opacity=".16"/><path d="M6 10l2.5 2.5L14 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const MISS_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" opacity=".5"/><path d="M7 7l6 6M13 7l-6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>';
 const UP_SVG='<svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2.4" opacity=".6"/></svg>';
 function ackTier(rate){return rate>=.75?{c:cvar('--mint')} : rate>=.45?{c:cvar('--sand')}:{c:cvar('--err')};}
+function pctPill(col, rate, extra){
+  const mix=(15+clamp(rate,0,1)*70).toFixed(0);
+  return `<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${Math.round(rate*100)}%${extra?` <small style="opacity:.8">${extra}</small>`:''}</span></span>`;
+}
 function renderAckPanel(){
   const panel=document.getElementById('ackPanel'),lbl=document.getElementById('ackRangeLbl');
   if(!panel||!lbl)return;
-  const active=syncedCategories().filter(c=>c.on);
+  let active=syncedCategories().filter(c=>c.on);
+  if(!active.length) active=CATS.filter(c=>c.on);
+  active=active.filter(c=>STAT_FIELD[c.k]);
 
   if(range==='day'){
-    lbl.textContent='today, by category';
+    lbl.textContent='today · ACK / (ACK + MISS)';
     if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
     const html=`<div class="ackGridWrap"><div class="ackGrid">
       ${active.map(c=>{
         const col=cvar(c.color);
-        const real=realDayCounts(c.k);       // {ack,miss,due} from today's synced record, or null
-        let due=0, acked=0, realIdx=0;
-        const cells=c.times.map((h,i)=>{
-          const sub=(c.labels&&c.labels[i])?c.labels[i]:null;
-          const upcoming=h>=NOW_H, nameBit=sub?`${c.label} — ${sub}`:c.label;
-          if(upcoming)return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · upcoming"><i class="upcoming" style="--c:${col}"></i></span>`;
-          due++;
-          let ack;
-          if(real){ ack = realIdx < real.ack; realIdx++; }   // best-effort: light up the first `ack` due slots
-          else { ack = occAck(c.k,i,0); }
-          if(ack) acked++;
-          return `<span class="ackCell" title="${nameBit} · ${fmt(h)} · ${ack?'acknowledged':'missed'}"><i style="--c:${col};opacity:${ack?1:.15}"></i></span>`;
-        }).join('');
-        const rate = real ? (real.due ? real.ack/real.due : null) : (due?acked/due:null);
-        const mix=rate==null?0:(15+rate*70).toFixed(0);
-        const pct=rate==null
-          ? `<span class="ackPct"><span class="pill" style="--bg:var(--panel2);color:var(--muted)">—</span></span>`
-          : `<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${Math.round(rate*100)}%</span></span>`;
-        return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pct}</div>`;
+        const real=realDayCounts(c.k);
+        const rate=ackPct(real.ack, real.miss);
+        const due=real.due;
+        let cells;
+        if(!due){
+          cells=`<span class="ackCell" title="${c.label} · 0 ack · 0 miss · no events today"><i style="--c:${col};opacity:.12"></i></span>`;
+        } else {
+          cells=Array.from({length:due},(_,i)=>{
+            const ack=i<real.ack;
+            return `<span class="ackCell" title="${c.label} · ${ack?'acknowledged':'missed'} (${real.ack} ack / ${real.miss} miss)"><i style="--c:${col};opacity:${ack?1:.18}"></i></span>`;
+          }).join('');
+        }
+        return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,rate,`${real.ack}/${due}`)}</div>`;
       }).join('')}
     </div></div>`;
     panel.innerHTML=html;
     return;
   }
 
-  const n=range==='week'?7:30;
-  lbl.textContent=range==='week'?'last 7 days, by category':'last 30 days, by category';
+  lbl.textContent=range==='week'?'last 7 days · ACK / (ACK + MISS)':'this month · ACK / (ACK + MISS)';
   const D=['S','M','T','W','T','F','S'];
   const records=statRecordsForRange();
-  const useRealCols = hasRealStats() && records.length>0;
-  const cols = useRealCols ? records.length : n;
-  const weekdayLetter=dateStr=>D[new Date(dateStr+'T00:00:00').getDay()];
-  const head = useRealCols
-    ? records.map(r=>range==='week' ? weekdayLetter(r.date) : Number(r.date.slice(8)))
-    : Array.from({length:cols},(_,i)=>range==='week'?D[i]:(i%5===0?i+1:''));
-
+  if(!records.length){
+    panel.innerHTML='<div class="ackEmpty">No statistics stored for this range. Sync from the device to populate the database.</div>';
+    return;
+  }
   if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders in this range.</div>';return;}
+
+  const weekdayLetter=dateStr=>{
+    const d=parseStatDate(dateStr);
+    return d?D[d.getDay()]:'';
+  };
+  const head=records.map(r=>{
+    const raw=String(r.date||'');
+    if(range==='week') return weekdayLetter(raw);
+    const d=parseStatDate(raw);
+    return d?d.getDate():(raw.length>=8?Number(raw.slice(-2)):raw);
+  });
+  const cols=records.length;
 
   const html=`<div class="ackGridWrap"><div class="ackGrid"><div class="ackDays"><span class="lbl"></span>${head.map(d=>`<span>${d}</span>`).join('')}<span class="lbl"></span></div>
     ${active.map(c=>{
-      let sum=0; const col=cvar(c.color);
+      const col=cvar(c.color);
       const field=STAT_FIELD[c.k];
-      const useReal = useRealCols && field;
+      let sumAck=0, sumMiss=0;
       const cells=Array.from({length:cols},(_,day)=>{
-        let rate;
-        if(useReal){
-          const rec=records[day];
-          const ack=Number(rec[field+'_ack']||0), miss=Number(rec[field+'_miss']||0), due=ack+miss;
-          rate = due ? ack/due : 0;
-        } else if(!c.times.length){
-          return `<span class="ackCell"><i style="--c:${col};opacity:.12"></i></span>`;
-        } else {
-          rate = dayRate(c.k, day);
-        }
-        sum += rate;
-        return `<span class="ackCell" title="${Math.round(rate*100)}%"><i style="--c:${col};opacity:${(.12+rate*.88).toFixed(2)}"></i></span>`;
+        const rec=records[day];
+        const ack=Math.max(0,Number(rec[field+'_ack']||0)), miss=Math.max(0,Number(rec[field+'_miss']||0));
+        sumAck+=ack; sumMiss+=miss;
+        const rate=ackPct(ack,miss);
+        const due=ack+miss;
+        return `<span class="ackCell" title="${c.label} · ${String(rec.date||'')} · ${ack} ack / ${miss} miss · ${due?Math.round(rate*100):0}%"><i style="--c:${col};opacity:${due?(.12+rate*.88).toFixed(2):'.12'}"></i></span>`;
       }).join('');
-      const overall = cols ? sum/cols : 0;
-      const mix=(15+overall*70).toFixed(0);
-      return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}<span class="ackPct"><span class="pill" style="--bg:color-mix(in srgb,${col} ${mix}%,var(--panel2))">${cols?Math.round(overall*100)+'%':'—'}</span></span></div>`;
+      const overall=ackPct(sumAck,sumMiss);
+      return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,overall,`${sumAck}/${sumAck+sumMiss}`)}</div>`;
     }).join('')}
   </div></div>`;
   panel.innerHTML=html;
@@ -943,7 +1013,6 @@ function toDeviceJSON(){
     }
   };
   setWin(J.reminders.hydration, cat('water'));
-  J.reminders.hydration.goal_ml=clamp(Math.round((cat('water').goal||0)/100)*100,0,6000);
   setWin(J.reminders.eye,       cat('eye'));
   setWin(J.reminders.stretch,   cat('stretch'));
   setWin(J.reminders.walk,      cat('walk'));
@@ -966,12 +1035,17 @@ function toDeviceJSON(){
   const cus=cat('custom'); J.reminders.custom.enabled=cus.on;
   J.reminders.custom.events.forEach((e,gi)=>{
     const i=cus.gi.indexOf(gi);
-    if(i>=0){ e.label=cus.labels[i]; const t=cus.times[i]; e.h=Math.floor(t); e.m=Math.round(t%1*60); e.show_ms=Math.round(cus.dur*60000); }
+    if(i>=0){
+      e.label=cus.labels[i];
+      e.days=dayNames(cus.groups[gi].days);
+      const t=cus.times[i]; e.h=Math.floor(t); e.m=Math.round(t%1*60); e.show_ms=Math.round(cus.dur*60000);
+    }
   });
   // bottle clean
   const cl=cat('clean'), ch=cl.times[0]??18;
   J.bottle_clean.enabled=cl.on; J.bottle_clean.hour=Math.floor(ch); J.bottle_clean.minute=Math.round(ch%1*60);
-  J.bottle_clean.interval_days=cl.everyDays; J.bottle_clean.display_ms=Math.round(cl.dur*60000);
+  J.bottle_clean.interval_days=Math.max(1, Math.round(Number(cl.everyDays || 1)));
+  J.bottle_clean.display_ms=Math.round(cl.dur*60000);
   // healing schedules from times + duration
   const he=cat('healing');
   J.audio.healing.enabled=he.on;
@@ -989,6 +1063,8 @@ function toDeviceJSON(){
     J.pomodoro.laps=po.times.map((t,i)=>{const end=t+po.durs[i]/60;
       return {enabled:true,sh:Math.floor(t),sm:Math.round(t%1*60),eh:Math.floor(end)%24,em:Math.round(end%1*60)};});
   }
+  // Keep the exported/synced payload matching the device schema exactly.
+  if(J.reminders?.hydration?.goal_ml !== undefined) delete J.reminders.hydration.goal_ml;
   return J;
 }
 function snapSig(c){return `${c.on?'on':'off'} · ${c.times.length}× · ${c.dur}m · ${c.times.map(t=>t.toFixed(2)).join(',')}`;}
@@ -1018,14 +1094,21 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
   try{
     if(bleClient?.isConnected){
       await bleClient.disconnect();
-      bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
+      // Preserve deviceMac so Statistics continue to load from the database for the bound device.
+      bleClient=null; connected=false; liveConfigSynced=false;
+      document.getElementById('dMac').textContent=deviceMac||'Not available';
+      window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
       setChip(); renderDevice(); toast('Disconnected');
     } else {
       bleClient=await requestFrostDevice();
       connected=bleClient.isConnected;
       liveConfigSynced=false;
       bleClient['device']?.addEventListener('gattserverdisconnected',()=>{
-        bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; window.dispatchEvent(new CustomEvent('frost-device-disconnected')); setChip(); renderDevice(); toast('Device disconnected');
+        // Preserve deviceMac for continued DB statistics after unexpected disconnect.
+        bleClient=null; connected=false; liveConfigSynced=false;
+        document.getElementById('dMac').textContent=deviceMac||'Not available';
+        window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
+        setChip(); renderDevice(); toast('Device disconnected');
       });
       document.getElementById('dSerial').textContent=`${bleClient.name} · BLE characteristic ${CHAR_UUID}`;
       document.getElementById('dMac').textContent='Reading…';
@@ -1036,12 +1119,14 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
         document.getElementById('dMac').textContent=mac;
         window.dispatchEvent(new CustomEvent('frost-device-mac',{detail:{macAddress:mac}}));
       }catch(error){
-        document.getElementById('dMac').textContent='Unavailable';
+        document.getElementById('dMac').textContent=deviceMac||'Unavailable';
         toast(error instanceof Error?error.message:'MAC address could not be read');
       }
     }
   }catch(error){
-    bleClient=null; connected=false; deviceMac=null; liveConfigSynced=false; document.getElementById('dMac').textContent='Not available'; setChip(); renderDevice();
+    bleClient=null; connected=false; liveConfigSynced=false;
+    document.getElementById('dMac').textContent=deviceMac||'Not available';
+    setChip(); renderDevice();
     toast(error instanceof Error?error.message:'BLE connection failed');
   }finally{button.disabled=false;}
 });
@@ -1192,6 +1277,8 @@ document.getElementById('signout').addEventListener('click',()=>{
   window.dispatchEvent(new CustomEvent('frost-signout'));
 });
 applyUser(authenticatedUser);
+statisticsUnsubscribe();
+statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
 
 setChip();
 /* ===================== AURA — AI schedule assistant ===================== */
@@ -1252,7 +1339,7 @@ function auraSystem(){
   return `You are Aura, the warm, concise assistant built into the FROST reminder app. You help the user view, add, change, delete and toggle reminders, and answer questions/insights about their schedule.
 Current time: ${fmt(NOW_H)}.
 Current schedule: ${JSON.stringify(auraSchedule())}
-Use ONLY these category keys: water(Hydration), meds(Medication), eye(Eye break), stretch(Stretch), walk(Walk), meditation(Meditation), custom(Custom), clean(Bottle), healing(Healing), pomodoro(Pomodoro).
+Use ONLY these category keys: water(Hydration), meds(Medication), eye(Eye break), stretch(Stretch), walk(Walk), meditation(Meditation), custom(Custom), clean(Bottle Clean), healing(Healing), pomodoro(Pomodoro).
 Respond with ONLY a JSON object, no markdown, no prose outside JSON:
 {"reply":"<friendly message, under 40 words>","actions":[ ...zero or more... ]}
 Actions:

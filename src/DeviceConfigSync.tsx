@@ -35,9 +35,6 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
       lastSyncedBy: uid,
       lastSyncedByEmail: email,
     }, { merge: true });
-    const dailyGoalWrite = setDoc(deviceDocument(uid, macAddress), {
-      dailyGoalMl: Math.max(0, Math.round(Number(config.reminders.hydration.goal_ml) || 0)),
-    }, { merge: true });
     // Audit history is write-only for now; a future useDeviceConfigHistory hook can read it.
     const historyWrite = addDoc(historyCollection(uid, macAddress), {
       macAddress,
@@ -47,16 +44,13 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
       syncedByEmail: email,
       syncedAt: serverTimestamp(),
     });
-    const results = await Promise.allSettled([currentWrite, historyWrite, dailyGoalWrite]);
+    const results = await Promise.allSettled([currentWrite, historyWrite]);
     const currentResult = results[0];
     const historyResult = results[1];
     if (currentResult.status === 'rejected') throw currentResult.reason;
     window.dispatchEvent(new CustomEvent('frost-device-config-saved'));
     if (historyResult.status === 'rejected') {
       console.error('Unable to save the FROST device configuration history.', historyResult.reason);
-    }
-    if (results[2].status === 'rejected') {
-      console.error('Unable to save the FROST daily hydration goal.', results[2].reason);
     }
   } catch (error) {
     console.error('Unable to save the synced FROST device configuration.', error);
@@ -76,7 +70,41 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
     setLoading(true);
     setError(null);
     let cancelled = false;
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeConfig: (() => void) | undefined;
+    let unsubscribeDevice: (() => void) | undefined;
+    let latestConfigData: DeviceConfigDocument | undefined;
+    let latestDeviceData: { dailyGoalMl?: number } | undefined;
+
+    const withStoredDailyGoal = (baseConfig: DeviceConfig | null): DeviceConfig | null => {
+      if (!baseConfig) return null;
+      const persistedGoal = Number(latestDeviceData?.dailyGoalMl);
+      const goalMl = Number.isFinite(persistedGoal) && persistedGoal > 0 ? persistedGoal : 0;
+
+      return {
+        ...baseConfig,
+        reminders: {
+          ...baseConfig.reminders,
+          hydration: {
+            ...baseConfig.reminders.hydration,
+            goal_ml: Math.max(0, Math.round(goalMl)) as any,
+          },
+        },
+      } as DeviceConfig;
+    };
+
+    const applyConfigState = () => {
+      if (!latestConfigData) {
+        setConfig(null);
+        setLastSyncedAt(null);
+        setLoading(false);
+        return;
+      }
+
+      const mergedConfig = withStoredDailyGoal(latestConfigData.config);
+      setConfig(mergedConfig);
+      setLastSyncedAt(latestConfigData.lastSyncedAt instanceof Timestamp ? latestConfigData.lastSyncedAt.toDate() : null);
+      setLoading(false);
+    };
 
     const subscribe = async () => {
       let resolvedMac = macAddress;
@@ -93,22 +121,34 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       if (!resolvedMac) {
         setConfig(null); setLastSyncedAt(null); setLoading(false); return;
       }
-      unsubscribe = onSnapshot(configDocument(uid, resolvedMac), (snapshot) => {
-        const data = snapshot.data() as DeviceConfigDocument | undefined;
-        setConfig(snapshot.exists() && data ? data.config : null);
-        setLastSyncedAt(data?.lastSyncedAt instanceof Timestamp ? data.lastSyncedAt.toDate() : null);
-        setLoading(false);
+
+      unsubscribeConfig = onSnapshot(configDocument(uid, resolvedMac), (snapshot) => {
+        latestConfigData = snapshot.data() as DeviceConfigDocument | undefined;
+        applyConfigState();
+      }, (snapshotError) => {
+        setConfig(null); setLastSyncedAt(null); setLoading(false);
+        setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
+      });
+
+      unsubscribeDevice = onSnapshot(deviceDocument(uid, resolvedMac), (snapshot) => {
+        latestDeviceData = snapshot.data() as { dailyGoalMl?: number } | undefined;
+        applyConfigState();
       }, (snapshotError) => {
         setConfig(null); setLastSyncedAt(null); setLoading(false);
         setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
       });
     };
+
     void subscribe().catch((snapshotError: unknown) => {
       if (cancelled) return;
       setConfig(null); setLastSyncedAt(null); setLoading(false);
       setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
     });
-    return () => { cancelled = true; unsubscribe?.(); };
+    return () => {
+      cancelled = true;
+      unsubscribeConfig?.();
+      unsubscribeDevice?.();
+    };
   }, [macAddress, uid]);
 
   return { config, lastSyncedAt, loading, error };

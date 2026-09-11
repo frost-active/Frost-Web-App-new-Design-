@@ -30,7 +30,7 @@ export const reminderDefinitions = {
   walk: { key: 'walk', label: 'Walk', color: '--c-walk', source: 'walk', category: 'window' },
   meditation: { key: 'meditation', label: 'Meditation', color: '--c-meditation', source: 'meditation', category: 'window' },
   custom: { key: 'custom', label: 'Custom', color: '--c-custom', source: 'custom', category: 'event' },
-  clean: { key: 'clean', label: 'Bottle', color: '--c-clean', source: 'bottle_clean', category: 'window' },
+  clean: { key: 'clean', label: 'Bottle Clean', color: '--c-clean', source: 'bottle_clean', category: 'window' },
   healing: { key: 'healing', label: 'Healing', color: '--c-healing', source: 'healing', category: 'window' },
   pomodoro: { key: 'pomodoro', label: 'Pomodoro', color: '--c-pomodoro', source: 'pomodoro', category: 'lap' },
 } as const;
