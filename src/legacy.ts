@@ -197,7 +197,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <p class="psub">Your FROST Aura connection, firmware, and the schedule it's currently running.</p>
     <div style="display:flex;flex-direction:column;gap:14px;max-width:680px">
       <div class="card"><h2>Binding</h2><div id="device-binding-root"></div>
-        <div class="drow"><div class="t"><p>FROST Aura</p><small id="dSerial">Serial AUR-0473-BLR · firmware 1.4.2</small><small>MAC Address: <span id="dMac">Not available</span></small></div>
+        <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small></div>
           <div class="batt"><i style="--p:82%"></i></div>
           <span class="pill" id="dState">Offline</span>
           <button class="btn" id="dConnect">Connect</button></div>
@@ -1306,7 +1306,6 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
         window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
         setChip(); renderDevice(); toast('Device disconnected');
       });
-      document.getElementById('dSerial').textContent=`${bleClient.name} · BLE characteristic ${CHAR_UUID}`;
       document.getElementById('dMac').textContent='Reading…';
       setChip(); renderDevice(); toast(`Connected to ${bleClient.name}`);
       try{
