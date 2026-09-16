@@ -35,14 +35,18 @@
   .gridtog .sw::after{content:"";position:absolute;top:2.5px;left:2.5px;width:13px;height:13px;border-radius:50%;background:var(--ink);transition:.2s}
   .gridtog.on{color:var(--ink);border-color:rgba(41,171,226,.4)}
   .gridtog.on .sw{background:var(--sky)} .gridtog.on .sw::after{transform:translateX(12px)}
-  .user{display:flex;align-items:center;gap:8px;border:1px solid var(--faint);border-radius:99px;padding:4px 5px 4px 4px}
+  .user{display:flex;align-items:center;gap:8px;border:1px solid var(--faint);border-radius:99px;padding:4px 5px 4px 4px;position:relative}
   .uav{width:26px;height:26px;border-radius:50%;background:var(--teal);display:grid;place-items:center;font:700 11px Syne;color:var(--navy);flex:none}
-  .uinfo{display:flex;flex-direction:column;gap:1px;min-width:0;max-width:170px}
+  .uinfo{display:flex;align-items:center;min-width:0;max-width:170px}
   .uname{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .uemail{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .uout{border:0;background:none;color:var(--muted);font-size:11.5px;padding:4px 8px;border-radius:99px}
+  .user-menu-toggle{width:24px;height:24px;border:1px solid var(--faint);border-radius:8px;background:transparent;color:var(--muted);display:grid;place-items:center;transition:.15s;padding:0}
+  .user-menu-toggle:hover,.user-menu-toggle.open{border-color:var(--sky);color:var(--ink);background:var(--panel2)}
+  .user-menu-toggle svg{width:12px;height:12px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .user-menu{position:absolute;right:0;top:calc(100% + 8px);min-width:220px;background:var(--panel);border:1px solid var(--faint);border-radius:12px;padding:10px;box-shadow:0 14px 32px rgba(4,24,40,.38);z-index:50}
+  .user-menu-email{font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 6px 10px;border-bottom:1px solid var(--faint);margin-bottom:8px}
+  .uout{border:0;background:transparent;color:var(--muted);font-size:11.5px;padding:6px 8px;border-radius:8px;width:100%;text-align:left}
   .uout:hover{color:var(--ink);background:var(--panel2)}
-  @media(max-width:680px){.uinfo{max-width:118px}.uemail{font-size:9px}.uout{padding:6px 9px}}
+  @media(max-width:680px){.uinfo{max-width:118px}.user-menu{min-width:180px}.uout{padding:7px 9px}}
 
   /* ---------- QUICK ACTIONS ---------- */
   .quick-actions{width:calc(100% - 336px);margin:0 0 20px;background:var(--panel);border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:18px}
@@ -84,7 +88,7 @@
   .stage{display:grid;grid-template-columns:1fr 312px;gap:24px;align-items:start}
   @media(max-width:840px){.stage{grid-template-columns:1fr}}
   .clockcard{background:var(--panel);border-radius:18px;padding:8px;position:relative}
-  svg.dial{display:block;width:100%;height:auto;touch-action:none}
+  svg.dial{display:block;width:100%;height:auto;touch-action:pan-y}
   .rim-track{fill:none;stroke:rgba(230,241,248,.05)}
   .dndwedge{fill:var(--sand);opacity:.05}
   .zone-fill{opacity:.09} .zone-edge2{opacity:0}
@@ -248,20 +252,19 @@
   }
   @media(max-width:680px){
     body{padding:12px 8px 40px}
-    header{gap:10px 8px;margin-bottom:12px}
+    header{gap:10px 8px;margin-bottom:12px;flex-wrap:wrap}
     .hspace{display:none}
     .logo{order:1}
-    .chip{order:2;margin-left:auto;padding:6px 10px}
-    .gridtog{order:3}
-    nav.tabs{order:4;flex-basis:100%;width:100%}
+    .user{order:2;margin-left:auto}
+    .chip{order:3;padding:6px 10px}
+    .gridtog{order:4}
+    nav.tabs{order:5;flex-basis:100%;width:100%}
     nav.tabs button{flex:1;text-align:center;padding:11px 4px;font-size:13px}
     .ptitle{font-size:16px}
     .psub{display:none}                       /* reclaim vertical space on mobile */
     .stage{grid-template-columns:1fr;gap:12px}
-    /* clock fills the screen on mobile */
-    /* left-anchored semicircle fills the width and most of the screen height */
-    .clockcard{width:100vw;margin-left:calc(-50vw + 50%);padding:0;background:none;border-radius:0}
-    .clockcard svg.dial{width:100vw;max-height:82vh}
+    .clockcard{width:100%;margin-left:0;padding:8px;background:var(--panel);border-radius:18px}
+    .clockcard svg.dial{width:100%;max-height:none}
     .side{gap:10px}
     /* bigger touch controls in the inspector */
     .step button{width:40px;height:40px;font-size:18px}

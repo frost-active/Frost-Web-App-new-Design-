@@ -49,59 +49,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
   cursor: wait;
 }
 
-/* Mobile-only layout fixes — desktop layout is left completely unchanged */
-@media (max-width: 680px) {
-  html, body { height: auto !important; min-height: 100%; overflow-x: hidden; overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
-  .wrap { height: auto !important; min-height: 100vh; overflow: visible !important; display: flex; flex-direction: column; }
-  #page-configure { display: block !important; overflow: visible !important; height: auto !important; max-height: none !important; flex: 1 1 auto; }
-  #page-configure .stage {
-    display: flex !important;
-    flex-direction: column !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    gap: 12px;
-  }
-  #page-configure .clockcard {
-    flex: 0 0 auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    overflow: visible !important;
-  }
-  #page-configure .clockcard .dial,
-  #page-configure .clockcard svg.dial {
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    display: block;
-  }
-  #page-configure .side {
-    flex: 1 1 auto !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    overflow-y: visible !important;
-  }
-  #page-configure .card,
-  #page-configure .insp,
-  #page-configure .aura-card {
-    overflow: visible !important;
-  }
-  #page-configure .clock-toolbar {
-    top: 8px;
-    right: 8px;
-  }
-  #page-configure .clock-toolbar .clock-sync {
-    min-width: 96px;
-    padding: 7px 12px;
-    font-size: 11px;
-  }
-  /* Keep the floating Aura FAB from blocking scroll end */
-  .aura-fab { bottom: 16px; right: 16px; }
-}
 </style>
 <div class="wrap">
   <header>
@@ -118,8 +65,14 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <div class="chip" id="chip"><span class="dot"></span><span id="chipTxt">Not connected</span></div>
     <div class="user" id="user">
       <span class="uav" id="uav">R</span>
-      <span class="uinfo"><span class="uname" id="uname">Raju</span><span class="uemail" id="uemail"></span></span>
-      <button class="uout" id="signout" title="Sign out" aria-label="Sign out">Sign out</button>
+      <span class="uinfo"><span class="uname" id="uname">Raju</span></span>
+      <button class="user-menu-toggle" id="userMenuToggle" type="button" aria-label="Open account menu" aria-expanded="false" title="Account options">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 9.5L12 14.5L17 9.5" /></svg>
+      </button>
+      <div class="user-menu hide" id="userMenu" role="dialog" aria-label="Account menu">
+        <div class="user-menu-email" id="uemail"></div>
+        <button class="uout" id="signout" title="Sign out" aria-label="Sign out">Sign out</button>
+      </div>
     </div>
   </header>
 
@@ -1424,7 +1377,13 @@ function refreshDirty(){
 function show(p){
   page=p;
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.p===p));
-  ['configure','stats','device','settings'].forEach(x=>document.getElementById('page-'+x).classList.toggle('hide',x!==p));
+  ['configure','stats','device','settings'].forEach(x=>{
+    const el=document.getElementById('page-'+x);
+    const active=x===p;
+    el.classList.toggle('hide',!active);
+    el.hidden=!active;
+    el.style.display = active ? '' : 'none';
+  });
   document.getElementById('gridtog').classList.toggle('hide',p!=='configure');
   if(p==='configure')renderConfigure();
   if(p==='stats'){renderStats();}
@@ -1488,6 +1447,25 @@ function applyUser(authenticatedUser){
   document.getElementById('uemail').textContent=email;
   document.getElementById('user').title=email;
 }
+const userMenuToggle=document.getElementById('userMenuToggle');
+const userMenu=document.getElementById('userMenu');
+function setUserMenu(open){
+  userMenu.classList.toggle('hide',!open);
+  userMenuToggle.setAttribute('aria-expanded',String(open));
+  userMenuToggle.classList.toggle('open',open);
+}
+userMenuToggle.addEventListener('click',e=>{
+  e.stopPropagation();
+  setUserMenu(userMenu.classList.contains('hide'));
+});
+document.addEventListener('click',e=>{
+  const target=e.target;
+  if(!(target instanceof Node)) return;
+  if(!userMenu.contains(target)&&!userMenuToggle.contains(target)) setUserMenu(false);
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') setUserMenu(false);
+});
 document.getElementById('signout').addEventListener('click',()=>{
   [localStorage, sessionStorage].forEach(store=>{
     try{
@@ -1495,6 +1473,7 @@ document.getElementById('signout').addEventListener('click',()=>{
         .forEach(k=>store.removeItem(k));
     }catch(e){}
   });
+  setUserMenu(false);
   window.dispatchEvent(new CustomEvent('frost-signout'));
 });
 applyUser(authenticatedUser);
