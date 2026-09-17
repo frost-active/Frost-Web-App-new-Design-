@@ -237,7 +237,19 @@ function buildCATS(J){
       from:0, to:24, every:1, dur:R.meditation.display_sec/60,
       times:[R.meditation.sh+R.meditation.sm/60], days:dayNums(R.meditation.days) },
     { k:'custom', label:'Custom', color:'--c-custom', src:'custom', type:'ev', on:R.custom.enabled, dur:1,
-      groups:R.custom.events.map(e=>({name:e.label,times:[e.h+e.m/60],days:dayNums(e.days),enabled:e.enabled,dur:e.show_ms/60000})) },
+      groups:R.custom.events.map((e, idx)=>({
+        name:e.label ?? '',
+        times:[(Number(e.h)||0)+(Number(e.m)||0)/60],
+        days:dayNums(e.days || (e.type === 'absolute' ? [] : ['sun','mon','tue','wed','thu','fri','sat'])),
+        enabled:e.enabled !== false,
+        dur:(e.show_ms || 60000)/60000,
+        type: e.type === 'absolute' ? 'absolute' : 'recurring',
+        date: e.date || null,
+        id: e.id || `custom_${String(idx+1).padStart(3,'0')}`,
+        text_x: e.text_x, text_y: e.text_y, text_size: e.text_size,
+        text_color: e.text_color, text_align: e.text_align, text_width: e.text_width,
+        modePairId: e.mode_pair_id || null
+      })) },
     { k:'clean', label:'Bottle Clean', color:'--c-clean', src:'bottle_clean',
       type:'win', mode:'fixed', on:J.bottle_clean.enabled, from:0, to:24, every:1,
       dur:J.bottle_clean.display_ms/60000, everyDays:J.bottle_clean.interval_days,
@@ -270,6 +282,42 @@ function buildActiveCategories(J){
 let CATS=buildActiveCategories(RAW);
 /* per-occurrence duration: pomodoro laps can each be a different length */
 const occDur=(c,i)=>(c.durs&&c.durs[i]!=null)?c.durs[i]:c.dur;
+/* ---- custom reminder helpers (Events ↔ Specific pairing, safe removal, selection) ---- */
+const localISODate=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const customType=group=>group?.type==='absolute'?'absolute':'recurring';
+function nextCustomId(groups){
+  let max=0;
+  (groups||[]).forEach(g=>[g?.id,g?.modePairId].forEach(v=>{
+    const n=Number(String(v??'').match(/(\d+)$/)?.[1]);
+    if(Number.isFinite(n)&&n>max)max=n;
+  }));
+  return `custom_${String(max+1).padStart(3,'0')}`;
+}
+function removeOccurrence(c,i){
+  const removedGroup=c.gi?c.gi[i]:null;
+  c.times.splice(i,1);
+  if(c.durs)c.durs.splice(i,1);
+  if(c.labels)c.labels.splice(i,1);
+  if(c.gi)c.gi.splice(i,1);
+  // Custom: drop the now-empty event so it is not re-sent, then re-index the rest
+  if(c.k==='custom'&&c.groups&&removedGroup!=null&&!c.gi.includes(removedGroup)){
+    c.groups.splice(removedGroup,1);
+    c.gi=c.gi.map(g=>g>removedGroup?g-1:g);
+  }
+}
+function selectedGroupId(){
+  if(!sel)return null;
+  const c=CATS.find(x=>x.k===sel.k);
+  const g=(c?.groups&&c.gi)?c.groups[c.gi[sel.i]]:null;
+  return g?.id??null;
+}
+function normalizeSelection(){
+  if(!sel)return;
+  const c=CATS.find(x=>x.k===sel.k);
+  if(!c||!Array.isArray(c.times)||!c.times.length){sel=null;return;}
+  if(!Number.isInteger(sel.i)||sel.i<0||sel.i>=c.times.length)
+    sel={k:c.k,i:clamp(Number.isInteger(sel.i)?sel.i:0,0,c.times.length-1)};
+}
 /* pomodoro ring shows only when the feature and lap-mode are both on */
 function syncPomo(){const c=CATS.find(x=>x.k==='pomodoro');if(c)c.on=RAW.pomodoro.enabled;}
 syncPomo();
@@ -323,6 +371,7 @@ window.addEventListener('frost-device-config',event=>{
   if(liveConfigSynced)return;
   const saved=(event as CustomEvent<{config?: typeof defaultConfig}>).detail?.config;
   if(!saved)return;
+  const prevSel=sel?{k:sel.k,i:sel.i,id:selectedGroupId()}:null;
   const restored=structuredClone(saved);
   Object.keys(RAW).forEach(key=>delete RAW[key]);
   Object.assign(RAW,restored);
@@ -330,6 +379,15 @@ window.addEventListener('frost-device-config',event=>{
   syncPomo();
   device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
   syncedConfigAvailable=true;
+  // Re-point the selection at the same event in the freshly loaded data (indices may have shifted)
+  sel=prevSel?{k:prevSel.k,i:prevSel.i}:null;
+  if(sel&&prevSel.id){
+    const rc=CATS.find(x=>x.k===sel.k);
+    const gIdx=(rc?.groups&&rc.gi)?rc.groups.findIndex(g=>g.id===prevSel.id):-1;
+    const occ=gIdx>=0?rc.gi.indexOf(gIdx):-1;
+    if(occ>=0)sel.i=occ;
+  }
+  normalizeSelection();
   if(page==='configure')renderConfigure();
   if(page==='device')renderDevice();
 });
@@ -593,10 +651,21 @@ function drawInspect(){
   const selectedGroup = medicationGroup || customGroup;
   const isBottleClean = c.k==='clean';
   const isWindowReminder = c.type==='win' && ['water','eye','stretch','walk','clean'].includes(c.k);
-  const canEditActiveDays = !isBottleClean && (selectedGroup || ['water','eye','stretch','walk','meditation','healing'].includes(c.k));
+  const customMode = customGroup ? (customGroup.type === 'absolute' ? 'absolute' : 'recurring') : 'recurring';
+  const canEditActiveDays = !isBottleClean && ( (selectedGroup && !(c.k==='custom' && customMode==='absolute')) || ['water','eye','stretch','walk','meditation','healing'].includes(c.k) );
   const activeDays = selectedGroup ? selectedGroup.days : (c.days || []);
   const activeDaysPicker = canEditActiveDays ? `
     <div class="fld"><label>Active days</label><div class="day-picker">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day,index)=>`<button type="button" class="day-chip ${activeDays.includes(index)?'active':''}" data-day="${index}" aria-pressed="${activeDays.includes(index)}">${day}</button>`).join('')}</div></div>` : '';
+  const customModeField = c.k==='custom' ? `
+    <div class="fld"><label>Reminder Mode</label>
+      <div class="seg-ctl custom-mode" id="customModeCtl">
+        <button type="button" data-mode="recurring" aria-pressed="${customMode==='recurring'}">Events</button>
+        <button type="button" data-mode="absolute" aria-pressed="${customMode==='absolute'}">Specific</button>
+      </div>
+      <div class="applyall">Events = repeats on selected days · Specific = one date only</div>
+    </div>` : '';
+  const customDateField = (c.k==='custom' && customMode==='absolute') ? `
+    <div class="fld"><label>Date</label><input type="date" id="customDate" value="${esc(customGroup.date || localISODate())}"></div>` : '';
   const intervalDaysField = isBottleClean ? `
     <div class="fld"><label>Interval days</label><div class="ctl step" id="intervalDays"><button data-d="-1">−</button><output>${Math.max(1, Number(c.everyDays || 1))}</output><button data-d="1">+</button></div>
       <div class="applyall">Set how many days between each Bottle Clean reminder.</div></div>` : '';
@@ -640,6 +709,8 @@ function drawInspect(){
     <div class="meta">${modeLabel(c)} · ${c.type==='lap'?'lap':'reminder'} ${sel.i+1} of ${c.times.length} · <span style="color:${col}">drag the handle to move</span></div>
     ${labelField}
     ${medicationSchedule}
+    ${customModeField || ''}
+    ${customDateField || ''}
     ${isBottleClean ? intervalDaysField : activeDaysPicker}
     ${modeEditor}
     ${hydrationGoal}
@@ -653,12 +724,80 @@ function drawInspect(){
     li.addEventListener('input',()=>{
       const v=li.value.slice(0,25);
       c.labels[sel.i]=v; cc.textContent=v.length+'/25';
+      if(c.k==='custom' && customGroup) customGroup.name = v;
+      if(c.k==='meds' && medicationGroup) medicationGroup.name = v;
     });
     li.addEventListener('change',()=>renderConfigure());
   }
   if(medicationGroup){
     box.querySelector('#medStart').addEventListener('change',e=>{medicationGroup.start=e.target.value;});
     box.querySelector('#medEnd').addEventListener('change',e=>{medicationGroup.end=e.target.value;});
+  }
+  if(c.k==='custom' && customGroup){
+    const modeCtl = box.querySelector('#customModeCtl');
+    modeCtl?.querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const mode = btn.dataset.mode === 'absolute' ? 'absolute' : 'recurring';
+        if(mode === customMode) return;                       // already showing this mode
+        const currentGroupIndex = c.gi[sel.i];
+        const pairId = customGroup.modePairId || customGroup.id || `custom_pair_${currentGroupIndex}`;
+        customGroup.modePairId = pairId;
+
+        // 1) Partner already linked by pair id (same session, or restored from the cloud copy)
+        let targetGroupIndex = c.groups.findIndex((group, index) =>
+          index !== currentGroupIndex && group.modePairId === pairId && customType(group) === mode);
+
+        // 2) Config restored without pair ids: link by position among still-unpaired groups
+        if(targetGroupIndex < 0){
+          const unpaired = type => c.groups
+            .map((group, index) => ({ group, index }))
+            .filter(({ group, index }) => customType(group) === type &&
+              (index === currentGroupIndex || !group.modePairId || group.modePairId === pairId));
+          const position = unpaired(customMode).findIndex(entry => entry.index === currentGroupIndex);
+          const match = position >= 0 ? unpaired(mode)[position] : undefined;
+          if(match){
+            targetGroupIndex = match.index;                     // numeric index, not the object
+            c.groups[targetGroupIndex].modePairId = pairId;
+          }
+        }
+
+        // 3) No partner yet: create one seeded from this card's current time/days
+        if(targetGroupIndex < 0){
+          c.groups.push({
+            ...customGroup,
+            id: nextCustomId(c.groups),
+            modePairId: pairId,
+            type: mode,
+            name: '',
+            times: [h],
+            days: [...(customGroup.days?.length ? customGroup.days : [0,1,2,3,4,5,6])],
+            date: customGroup.date || localISODate()
+          });
+          targetGroupIndex = c.groups.length - 1;
+        }
+
+        // Ensure the partner has an occurrence on the clock, then select it
+        let targetOccurrenceIndex = c.gi.indexOf(targetGroupIndex);
+        if(targetOccurrenceIndex < 0){
+          const target = c.groups[targetGroupIndex];
+          const t = Number.isFinite(target.times?.[0]) ? target.times[0] : h;
+          c.times.push(t);
+          c.labels.push(target.name || '');
+          c.gi.push(targetGroupIndex);
+          sortCat(c);
+          targetOccurrenceIndex = c.gi.indexOf(targetGroupIndex);
+        }
+        sel = { k: c.k, i: targetOccurrenceIndex };
+        renderConfigure();
+      });
+    });
+    const dateInput = box.querySelector('#customDate');
+    if(dateInput){
+      dateInput.addEventListener('change',()=>{
+        customGroup.date = dateInput.value || localISODate();
+        renderConfigure();
+      });
+    }
   }
   if(canEditActiveDays){
     const dayList = selectedGroup ? selectedGroup.days : c.days;
@@ -730,7 +869,25 @@ function drawInspect(){
   box.querySelector('#dup').addEventListener('click',()=>{
     const nv=Math.min(23.75,h+Math.max(dd/60,.5));
     const duplicateLabel=c.labels?c.labels[sel.i]:null;
-    const duplicateGroup=c.gi?c.gi[sel.i]:null;
+    let duplicateGroup=c.gi?c.gi[sel.i]:null;
+    if(c.k==='custom' && c.groups && duplicateGroup!=null){
+      // Clone group so the new event is independent (own mode/date/days/label)
+      const src = c.groups[duplicateGroup];
+      const clone = {
+        name: (duplicateLabel || src.name || 'Custom'),
+        times: [nv],
+        days: [...(src.days || [0,1,2,3,4,5,6])],
+        enabled: true,
+        dur: src.dur != null ? src.dur : (c.dur || 1),
+        type: src.type === 'absolute' ? 'absolute' : 'recurring',
+        date: src.date || null,
+        id: nextCustomId(c.groups),
+        text_x: src.text_x, text_y: src.text_y, text_size: src.text_size,
+        text_color: src.text_color, text_align: src.text_align, text_width: src.text_width
+      };
+      c.groups.push(clone);
+      duplicateGroup = c.groups.length - 1;
+    }
     c.times.push(nv);
     if(c.durs)c.durs.push(dd);
     if(c.labels)c.labels.push(duplicateLabel);
@@ -749,7 +906,7 @@ function drawInspect(){
     sel.i=c.times.indexOf(nv);renderConfigure();
   });
   box.querySelector('#del').addEventListener('click',()=>{
-    if(c.times.length>1){c.times.splice(sel.i,1);if(c.durs)c.durs.splice(sel.i,1);sel.i=Math.max(0,sel.i-1);}
+    if(c.times.length>1){removeOccurrence(c,sel.i);sel.i=Math.max(0,sel.i-1);}
     else{c.on=false;if(c.k==='pomodoro'){RAW.pomodoro.enabled=false;RAW.pomodoro.lap_mode_enabled=false;}sel=null;}
     renderConfigure();});
   box.querySelector('#prev').addEventListener('click',()=>{sel.i=(sel.i-1+c.times.length)%c.times.length;renderConfigure();});
@@ -762,7 +919,7 @@ function drawInspect(){
     renderConfigure();
   }));
 }
-function renderConfigure(){drawClock();drawLegend();drawInspect();refreshDirty();}
+function renderConfigure(){normalizeSelection();drawClock();drawLegend();drawInspect();refreshDirty();}
 function maybeScroll(){ if(window.innerWidth<=840 && sel){ document.getElementById('insp').scrollIntoView({behavior:'smooth',block:'center'}); } }
 
 /* drag arcs */
@@ -786,10 +943,11 @@ dial.addEventListener('pointermove',e=>{if(!drag)return;const r=dial.getBounding
   if(HALF)h=clamp(h,0,24-1e-6);
   const c=CATS.find(x=>x.k===drag.k);c.times[drag.i]=h;renderConfigure();});
 dial.addEventListener('pointerup',()=>{if(!drag)return;
-  const c=CATS.find(x=>x.k===drag.k),moved=c.times[drag.i];
-  if(c.durs){const pairs=c.times.map((t,i)=>({t,d:c.durs[i]}));pairs.sort((a,b)=>a.t-b.t);c.times=pairs.map(p=>p.t);c.durs=pairs.map(p=>p.d);}
-  else c.times.sort((a,b)=>a-b);
-  sel={k:drag.k,i:c.times.indexOf(moved)};drag=null;renderConfigure();});
+  const c=CATS.find(x=>x.k===drag.k),moved=c.times[drag.i],movedGroup=c.gi?c.gi[drag.i]:null;
+  sortCat(c);   // keeps times/durs/labels/gi aligned (custom + medication rely on gi)
+  let ni=c.times.indexOf(moved);
+  if(movedGroup!=null){const match=c.gi.findIndex((g,idx)=>g===movedGroup&&c.times[idx]===moved);if(match>=0)ni=match;}
+  sel={k:drag.k,i:ni};drag=null;renderConfigure();});
 dial.addEventListener('click',e=>{const p=e.target.closest('.seg');if(!p)return;sel={k:p.dataset.k,i:+p.dataset.i};renderConfigure();maybeScroll();});
 
 /* ================= STATISTICS ================= */
@@ -1079,7 +1237,7 @@ async function syncStatistics(mode:'today'|'history'='today'){
 
 /* ================= DEVICE ================= */
 /* write the clock's current times/durations back into the device schema */
-function toDeviceJSON(){
+function toDeviceJSON({ includeUiMeta = false } = {}){
   const J=JSON.parse(JSON.stringify(RAW));
   const cat=k=>CATS.find(c=>c.k===k);
   const setWin=(node,c)=>{
@@ -1114,16 +1272,46 @@ function toDeviceJSON(){
     if(group){m.start=group.start;m.end=group.end;m.days=dayNames(group.days);m.enabled=group.enabled;}
     if(doses.length) m.doses=doses;
   });
-  // custom events: same, by group index
+  // custom events: rebuild from live times + groups (Events/recurring vs Specific/absolute)
   const cus=cat('custom'); J.reminders.custom.enabled=cus.on;
-  J.reminders.custom.events.forEach((e,gi)=>{
-    const i=cus.gi.indexOf(gi);
-    if(i>=0){
-      e.label=cus.labels[i];
-      e.days=dayNames(cus.groups[gi].days);
-      const t=cus.times[i]; e.h=Math.floor(t); e.m=Math.round(t%1*60); e.show_ms=Math.round(cus.dur*60000);
+  if(J.reminders.custom.require_ack === undefined) J.reminders.custom.require_ack = true;
+  const rebuilt = [];
+  (cus.groups || []).forEach((group, groupIndex)=>{
+    const occurrenceIndex = cus.gi ? cus.gi.indexOf(groupIndex) : groupIndex;
+    const rawTime = occurrenceIndex >= 0 && cus.times[occurrenceIndex] != null
+      ? cus.times[occurrenceIndex]
+      : group.times?.[0];
+    const t = Number.isFinite(rawTime) ? rawTime : 0;
+    const label = occurrenceIndex >= 0 && cus.labels && cus.labels[occurrenceIndex] != null
+      ? cus.labels[occurrenceIndex]
+      : (group.name || 'Custom');
+    const showMs = Math.round((group.dur != null ? group.dur : cus.dur || 1) * 60000);
+    const isAbsolute = group.type === 'absolute';
+    const ev = {
+      id: group.id || `custom_${String(rebuilt.length+1).padStart(3,'0')}`,
+      label,
+      enabled: group.enabled !== false,
+      h: Math.floor(t),
+      m: Math.round((t % 1) * 60),
+      show_ms: showMs,
+      type: isAbsolute ? 'absolute' : 'recurring',
+      text_x: group.text_x != null ? group.text_x : 120,
+      text_y: group.text_y != null ? group.text_y : 100,
+      text_size: group.text_size != null ? group.text_size : 1,
+      text_color: group.text_color != null ? group.text_color : 65535,
+      text_align: group.text_align != null ? group.text_align : 1,
+      text_width: group.text_width != null ? group.text_width : 180
+    };
+    if(isAbsolute){
+      ev.date = group.date || localISODate();
+    } else {
+      ev.days = dayNames(group.days && group.days.length ? group.days : [0,1,2,3,4,5,6]);
     }
+    // UI-only Events↔Specific pairing key: kept in the cloud copy, never sent to the device
+    if(includeUiMeta && group.modePairId) ev.mode_pair_id = group.modePairId;
+    rebuilt.push(ev);
   });
+  J.reminders.custom.events = rebuilt;
   // bottle clean
   const cl=cat('clean'), ch=cl.times[0]??18;
   J.bottle_clean.enabled=cl.on; J.bottle_clean.hour=Math.floor(ch); J.bottle_clean.minute=Math.round(ch%1*60);
@@ -1193,13 +1381,14 @@ async function syncScheduleToDevice(){
   setSyncButtonsBusy(true);
   try{
     const syncedConfig=toDeviceJSON();
+    const cloudConfig=toDeviceJSON({includeUiMeta:true});
     await bleClient.sendJsonConfiguration(syncedConfig);
     liveConfigSynced=true;
     device=snapshot();
     refreshDirty();
     toast('Schedule synced to Aura');
     if(deviceMac&&authenticatedUser?.uid&&authenticatedUser.email){
-      void saveDeviceConfig(deviceMac,syncedConfig,authenticatedUser.uid,authenticatedUser.email);
+      void saveDeviceConfig(deviceMac,cloudConfig,authenticatedUser.uid,authenticatedUser.email);
     }
   }catch(error){
     toast(error instanceof Error?error.message:'Configuration upload failed');
@@ -1502,10 +1691,16 @@ function applyAction(a){
   if(a.op==='add'){ const t=toHM(a.time); c.times.push(t);
     if(c.durs)c.durs.push(a.dur?+a.dur:(c.dur||1));
     if(c.labels){c.labels.push(a.label||c.label);}
-    if(c.gi){const gi=c.groups?c.groups.length:0; c.gi.push(gi); if(c.groups)c.groups.push({name:a.label||c.label,times:[t]});}
+    if(c.gi){const gi=c.groups?c.groups.length:0; c.gi.push(gi);
+      if(c.groups){
+        const base={name:a.label||c.label,times:[t],days:[0,1,2,3,4,5,6],enabled:true};
+        c.groups.push(c.k==='custom'
+          ?{...base,dur:c.dur||1,type:'recurring',date:null,id:nextCustomId(c.groups),modePairId:null}
+          :base);
+      }}
     if(!c.on)c.on=true; sortCat(c); return true; }
   if(a.op==='delete'){ if(c.times.length<=1){c.on=false;return true;} const i=idxByTime(c,a.time); if(i<0)return false;
-    c.times.splice(i,1); if(c.durs)c.durs.splice(i,1); if(c.labels)c.labels.splice(i,1); if(c.gi)c.gi.splice(i,1); return true; }
+    removeOccurrence(c,i); return true; }
   if(a.op==='move'){ const i=idxByTime(c,a.from); if(i<0)return false; c.times[i]=toHM(a.to); sortCat(c); return true; }
   if(a.op==='setlabel'){ if(!c.labels)return false; const i=idxByTime(c,a.time); if(i<0)return false; c.labels[i]=String(a.label).slice(0,25); return true; }
   return false;
