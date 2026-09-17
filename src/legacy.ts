@@ -202,8 +202,21 @@ const RAW=structuredClone(defaultConfig);
 
 const DOW=['sun','mon','tue','wed','thu','fri','sat'];
 const dayNums=arr=>arr.map(d=>DOW.indexOf(d)).filter(i=>i>=0).sort();
-const dayNames=nums=>[...nums].sort().map(i=>DOW[i]);
+/* Emit days in Mon→Sun order to match schema_ver 6 samples (mon first). */
+const dayNames=nums=>{
+  const set=new Set((nums&&nums.length)?nums:[0,1,2,3,4,5,6]);
+  const order=[1,2,3,4,5,6,0]; // mon..sun
+  return order.filter(i=>set.has(i)).map(i=>DOW[i]);
+};
 const parseHM=s=>{const[h,m]=s.split(':').map(Number);return h+m/60;};
+/* Window categories that must always emit mode:"absolute" + abs.times */
+const WINDOW_ABS_KEYS=new Set(['water','eye','stretch','walk']);
+function forceAbsoluteMode(c){
+  if(!c||!WINDOW_ABS_KEYS.has(c.k))return;
+  c.mode='fixed';   // internal; toDeviceJSON maps this to "absolute"
+  c.type='win';
+  if(c.durs)c.durs=null;
+}
 
 /* map the device schema into the clock's category model.
    Internal keys stay stable (water/meds/eye/clean/healing) so existing
@@ -219,7 +232,21 @@ function buildCATS(J){
       times:winTimes(R.hydration.abs.times), days:dayNums(R.hydration.days), goal:Number.isFinite(Number(R.hydration.goal_ml))?Math.min(6000,Math.max(0,Number(R.hydration.goal_ml))):2000 },
     { ...reminderDefinitions.meds, k:'meds', label:reminderDefinitions.meds.label, color:reminderDefinitions.meds.color, src:'medication', type:'ev', on:R.medication.enabled,
       lock:true, snooze:R.medication.snooze_min, dur:R.medication.display_ms/60000,
-      groups:R.medication.medicines.map(m=>({name:m.label,times:m.doses.map(d=>d.h+d.m/60),days:dayNums(m.days),start:m.start,end:m.end,enabled:m.enabled})) },
+      groups:R.medication.medicines.map((m, idx)=>({
+        name:m.label,
+        times:m.doses.map(d=>d.h+d.m/60),
+        days:dayNums(m.days),
+        start:m.start,
+        end:m.end,
+        enabled:m.enabled !== false,
+        id: m.id || `med_${String(idx+1).padStart(3,'0')}`,
+        text_x: m.text_x != null ? m.text_x : 120,
+        text_y: m.text_y != null ? m.text_y : 135,
+        text_size: m.text_size != null ? m.text_size : 1,
+        text_color: m.text_color != null ? m.text_color : 65535,
+        text_align: m.text_align != null ? m.text_align : 1,
+        text_width: m.text_width != null ? m.text_width : 180
+      })) },
     { ...reminderDefinitions.eye, k:'eye', label:reminderDefinitions.eye.label, color:reminderDefinitions.eye.color, src:'eye',
       type:'win', mode:R.eye.mode==='interval'?'interval':'fixed', on:R.eye.enabled,
       from:R.eye.start_hour+R.eye.start_min/60, to:R.eye.end_hour+R.eye.end_min/60,
@@ -299,8 +326,8 @@ function removeOccurrence(c,i){
   if(c.durs)c.durs.splice(i,1);
   if(c.labels)c.labels.splice(i,1);
   if(c.gi)c.gi.splice(i,1);
-  // Custom: drop the now-empty event so it is not re-sent, then re-index the rest
-  if(c.k==='custom'&&c.groups&&removedGroup!=null&&!c.gi.includes(removedGroup)){
+  // Custom / Medication: drop the now-empty group so it is not re-sent, then re-index the rest
+  if((c.k==='custom'||c.k==='meds')&&c.groups&&removedGroup!=null&&!c.gi.includes(removedGroup)){
     c.groups.splice(removedGroup,1);
     c.gi=c.gi.map(g=>g>removedGroup?g-1:g);
   }
@@ -817,6 +844,7 @@ function drawInspect(){
     });
   }
   const updateAbsoluteTime=(nv)=>{
+    forceAbsoluteMode(c); // keep internal mode in sync so abs.times is used on sync
     if(c.durs){ // keep durs paired with times through the sort
       const pairs=c.times.map((t,i)=>({t:i===sel.i?nv:t,d:c.durs[i],g:c.gi?c.gi[i]:null,l:c.labels?c.labels[i]:null}));
       pairs.sort((a,b)=>a.t-b.t);
@@ -867,6 +895,7 @@ function drawInspect(){
     else { c.dur=clamp(c.dur+(+b.dataset.d)*5,1,180); }
     renderConfigure();});
   box.querySelector('#dup').addEventListener('click',()=>{
+    forceAbsoluteMode(c);
     const nv=Math.min(23.75,h+Math.max(dd/60,.5));
     const duplicateLabel=c.labels?c.labels[sel.i]:null;
     let duplicateGroup=c.gi?c.gi[sel.i]:null;
@@ -906,7 +935,10 @@ function drawInspect(){
     sel.i=c.times.indexOf(nv);renderConfigure();
   });
   box.querySelector('#del').addEventListener('click',()=>{
-    if(c.times.length>1){removeOccurrence(c,sel.i);sel.i=Math.max(0,sel.i-1);}
+    if(c.times.length>1){
+      forceAbsoluteMode(c);
+      removeOccurrence(c,sel.i);sel.i=Math.max(0,sel.i-1);
+    }
     else{c.on=false;if(c.k==='pomodoro'){RAW.pomodoro.enabled=false;RAW.pomodoro.lap_mode_enabled=false;}sel=null;}
     renderConfigure();});
   box.querySelector('#prev').addEventListener('click',()=>{sel.i=(sel.i-1+c.times.length)%c.times.length;renderConfigure();});
@@ -944,6 +976,7 @@ dial.addEventListener('pointermove',e=>{if(!drag)return;const r=dial.getBounding
   const c=CATS.find(x=>x.k===drag.k);c.times[drag.i]=h;renderConfigure();});
 dial.addEventListener('pointerup',()=>{if(!drag)return;
   const c=CATS.find(x=>x.k===drag.k),moved=c.times[drag.i],movedGroup=c.gi?c.gi[drag.i]:null;
+  forceAbsoluteMode(c);
   sortCat(c);   // keeps times/durs/labels/gi aligned (custom + medication rely on gi)
   let ni=c.times.indexOf(moved);
   if(movedGroup!=null){const match=c.gi.findIndex((g,idx)=>g===movedGroup&&c.times[idx]===moved);if(match>=0)ni=match;}
@@ -1238,57 +1271,130 @@ async function syncStatistics(mode:'today'|'history'='today'){
 /* ================= DEVICE ================= */
 /* write the clock's current times/durations back into the device schema */
 function toDeviceJSON({ includeUiMeta = false } = {}){
-  const J=JSON.parse(JSON.stringify(RAW));
+  /* Emit EXACT schema_ver 6 device JSON. No extra keys, no missing required fields. */
   const cat=k=>CATS.find(c=>c.k===k);
-  const setWin=(node,c)=>{
-    node.enabled=c.on; node.display_ms=Math.round(c.dur*60000);
-    node.days=dayNames(c.days);
-    if(c.mode==='interval'){
-      node.mode='interval'; node.interval_ms=Math.round(c.every*3600000);
-      node.start_hour=Math.floor(c.from); node.start_min=Math.round(c.from%1*60);
-      node.end_hour=Math.floor(c.to); node.end_min=Math.round(c.to%1*60);
-      node.abs.times=[];
-    } else {
-      node.mode='absolute';
-      node.abs.times=c.times.map(t=>({h:Math.floor(t),m:Math.round(t%1*60)}));
-    }
+  const ALL_DAYS=['sun','mon','tue','wed','thu','fri','sat'];
+  const daysOrAll=nums=>{
+    const d=dayNames(nums && nums.length ? nums : [0,1,2,3,4,5,6]);
+    return d.length ? d : ALL_DAYS.slice();
   };
-  setWin(J.reminders.hydration, cat('water'));
-  setWin(J.reminders.eye,       cat('eye'));
-  setWin(J.reminders.stretch,   cat('stretch'));
-  setWin(J.reminders.walk,      cat('walk'));
-  // meditation: single window start + duration
-  const md=cat('meditation'), mh=md.times[0]??7;
-  J.reminders.meditation.enabled=md.on; J.reminders.meditation.sh=Math.floor(mh); J.reminders.meditation.sm=Math.round(mh%1*60);
-  const me=mh+md.dur/60; J.reminders.meditation.eh=Math.floor(me)%24; J.reminders.meditation.em=Math.round(me%1*60);
-  J.reminders.meditation.display_sec=Math.round(md.dur*60); J.reminders.meditation.days=dayNames(md.days);
-  // medication: rebuild label + doses per medicine from the flat arrays (by group index)
-  const meds=cat('meds'); J.reminders.medication.enabled=meds.on; J.reminders.medication.snooze_min=meds.snooze; J.reminders.medication.display_ms=Math.round(meds.dur*60000);
-  J.reminders.medication.medicines.forEach((m,gi)=>{
-    const group=meds.groups[gi];
-    const doses=[]; let label=null;
-    meds.times.forEach((t,i)=>{ if(meds.gi[i]===gi){ doses.push({h:Math.floor(t),m:Math.round(t%1*60)}); label=meds.labels[i]; } });
-    if(label!=null) m.label=label;
-    if(group){m.start=group.start;m.end=group.end;m.days=dayNames(group.days);m.enabled=group.enabled;}
-    if(doses.length) m.doses=doses;
+  const pad2=n=>String(n).padStart(2,'0');
+  const HM=v=>pad2(Math.floor(v))+':'+pad2(Math.round(v%1*60));
+  const timeObj=t=>({h:Math.floor(t), m:Math.round(t%1*60)});
+
+  // ── window reminders (hydration / stretch / eye / walk) ──
+  // ALWAYS emit mode:"absolute" + abs.times from the live clock times.
+  // Frontend times (drag / time picker / duplicate / Aura add) must appear here.
+  const winNode=(c, fallbackIntervalMs)=>{
+    // Build abs.times from whatever the user has configured on the clock right now
+    let absTimes = [];
+    if(c && Array.isArray(c.times) && c.times.length){
+      const seen=new Set();
+      absTimes = c.times
+        .map(t=>{
+          const h=((Math.floor(Number(t))%24)+24)%24;
+          let m=Math.round((Number(t)-Math.floor(Number(t)))*60);
+          if(m>=60){ m=0; }
+          if(m<0){ m=0; }
+          return { h, m };
+        })
+        .filter(o=>{
+          const key=o.h+':'+o.m;
+          if(seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a,b)=>(a.h*60+a.m)-(b.h*60+b.m));
+    }
+    return {
+      enabled: !!(c && c.on),
+      mode: 'absolute',                                    // always absolute for these four
+      interval_ms: fallbackIntervalMs || 3600000,
+      display_ms: Math.round((c && c.dur != null ? c.dur : 1) * 60000),
+      require_ack: true,
+      start_hour: 0,
+      start_min:  0,
+      end_hour:   23,
+      end_min:    59,
+      days: daysOrAll(c && c.days),
+      abs: { times: absTimes }                             // the times the user configured
+    };
+  };
+
+  // ── meditation ──
+  const md=cat('meditation');
+  const mh=(md && md.times && md.times[0] != null) ? md.times[0] : 7;
+  const mdDur=(md && md.dur != null) ? md.dur : 30;
+  const me=mh + mdDur/60;
+  const meditation={
+    enabled: !!(md && md.on),
+    sh: Math.floor(mh),
+    sm: Math.round(mh%1*60),
+    eh: Math.floor(me)%24,
+    em: Math.round(me%1*60),
+    display_sec: Math.round(mdDur*60),
+    require_ack: true,
+    days: daysOrAll(md && md.days)
+  };
+
+  // ── medication: rebuild medicines array from live groups ──
+  const meds=cat('meds');
+  const medicines=[];
+  (meds && meds.groups ? meds.groups : []).forEach((group, gi)=>{
+    const doses=[];
+    let label = group.name || 'Take Pill';
+    if(meds.times && meds.gi){
+      meds.times.forEach((t,i)=>{
+        if(meds.gi[i]===gi){
+          doses.push(timeObj(t));
+          if(meds.labels && meds.labels[i] != null) label=meds.labels[i];
+        }
+      });
+    }
+    if(!doses.length && group.times && group.times.length){
+      group.times.forEach(t=>doses.push(timeObj(t)));
+    }
+    if(!doses.length) return; // skip medicines with no doses
+    medicines.push({
+      id: group.id || `med_${String(medicines.length+1).padStart(3,'0')}`,
+      label,
+      enabled: group.enabled !== false,
+      start: group.start || '2026-01-01',
+      end: group.end || '2026-12-31',
+      days: daysOrAll(group.days),
+      text_x: group.text_x != null ? group.text_x : 120,
+      text_y: group.text_y != null ? group.text_y : 135,
+      text_size: group.text_size != null ? group.text_size : 1,
+      text_color: group.text_color != null ? group.text_color : 65535,
+      text_align: group.text_align != null ? group.text_align : 1,
+      text_width: group.text_width != null ? group.text_width : 180,
+      doses
+    });
   });
-  // custom events: rebuild from live times + groups (Events/recurring vs Specific/absolute)
-  const cus=cat('custom'); J.reminders.custom.enabled=cus.on;
-  if(J.reminders.custom.require_ack === undefined) J.reminders.custom.require_ack = true;
-  const rebuilt = [];
-  (cus.groups || []).forEach((group, groupIndex)=>{
+  const medication={
+    enabled: !!(meds && meds.on),
+    require_ack: true,
+    snooze_min: (meds && meds.snooze != null) ? meds.snooze : 15,
+    display_ms: Math.round((meds && meds.dur != null ? meds.dur : 1) * 60000),
+    medicines
+  };
+
+  // ── custom events ──
+  const cus=cat('custom');
+  const events=[];
+  (cus && cus.groups ? cus.groups : []).forEach((group, groupIndex)=>{
     const occurrenceIndex = cus.gi ? cus.gi.indexOf(groupIndex) : groupIndex;
-    const rawTime = occurrenceIndex >= 0 && cus.times[occurrenceIndex] != null
+    const rawTime = occurrenceIndex >= 0 && cus.times && cus.times[occurrenceIndex] != null
       ? cus.times[occurrenceIndex]
-      : group.times?.[0];
+      : (group.times && group.times[0]);
     const t = Number.isFinite(rawTime) ? rawTime : 0;
     const label = occurrenceIndex >= 0 && cus.labels && cus.labels[occurrenceIndex] != null
       ? cus.labels[occurrenceIndex]
       : (group.name || 'Custom');
-    const showMs = Math.round((group.dur != null ? group.dur : cus.dur || 1) * 60000);
+    const showMs = Math.round((group.dur != null ? group.dur : (cus.dur || 1)) * 60000);
     const isAbsolute = group.type === 'absolute';
-    const ev = {
-      id: group.id || `custom_${String(rebuilt.length+1).padStart(3,'0')}`,
+    const ev={
+      id: group.id || `custom_${String(events.length+1).padStart(3,'0')}`,
       label,
       enabled: group.enabled !== false,
       h: Math.floor(t),
@@ -1305,38 +1411,107 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     if(isAbsolute){
       ev.date = group.date || localISODate();
     } else {
-      ev.days = dayNames(group.days && group.days.length ? group.days : [0,1,2,3,4,5,6]);
+      ev.days = daysOrAll(group.days);
     }
-    // UI-only Events↔Specific pairing key: kept in the cloud copy, never sent to the device
+    // UI-only Events↔Specific pairing key: cloud copy only, never sent to device
     if(includeUiMeta && group.modePairId) ev.mode_pair_id = group.modePairId;
-    rebuilt.push(ev);
+    events.push(ev);
   });
-  J.reminders.custom.events = rebuilt;
-  // bottle clean
-  const cl=cat('clean'), ch=cl.times[0]??18;
-  J.bottle_clean.enabled=cl.on; J.bottle_clean.hour=Math.floor(ch); J.bottle_clean.minute=Math.round(ch%1*60);
-  J.bottle_clean.interval_days=Math.max(1, Math.round(Number(cl.everyDays || 1)));
-  J.bottle_clean.display_ms=Math.round(cl.dur*60000);
-  // healing schedules from times + duration
+  const custom={
+    enabled: !!(cus && cus.on),
+    require_ack: true,
+    events
+  };
+
+  // ── bottle clean ──
+  const cl=cat('clean');
+  const ch=(cl && cl.times && cl.times[0] != null) ? cl.times[0] : 18;
+  const bottle_clean={
+    enabled: !!(cl && cl.on),
+    interval_days: Math.max(1, Math.round(Number(cl && cl.everyDays != null ? cl.everyDays : 1))),
+    hour: Math.floor(ch),
+    minute: Math.round(ch%1*60),
+    display_ms: Math.round((cl && cl.dur != null ? cl.dur : 1) * 60000),
+    require_ack: true
+  };
+
+  // ── audio (preserve volume/tracks from RAW; rebuild healing schedules) ──
+  const rawAudio = (RAW && RAW.audio) ? RAW.audio : {};
   const he=cat('healing');
-  J.audio.healing.enabled=he.on;
-  J.audio.healing_schedules=he.times.map(t=>{const end=t+he.dur/60;
-    const pad=x=>String(x).padStart(2,'0'); const HM=v=>pad(Math.floor(v))+':'+pad(Math.round(v%1*60));
-    return {enabled:true,start_time:HM(t),end_time:HM(end),days:dayNames(he.days)};});
-  // pomodoro laps from the category (times + per-lap durations)
+  const heDur = (he && he.dur != null) ? he.dur : 60;
+  const heDays = daysOrAll(he && he.days);
+  const healing_schedules = (he && he.times && he.times.length)
+    ? he.times.map(t=>{
+        const end = t + heDur/60;
+        return { enabled:true, start_time:HM(t), end_time:HM(end), days: heDays.slice() };
+      })
+    : (Array.isArray(rawAudio.healing_schedules) ? rawAudio.healing_schedules : []);
+  const audio={
+    volume: rawAudio.volume != null ? rawAudio.volume : 15,
+    pomodoro: {
+      enabled: !!(rawAudio.pomodoro && rawAudio.pomodoro.enabled !== false),
+      tracks: (rawAudio.pomodoro && Array.isArray(rawAudio.pomodoro.tracks)) ? rawAudio.pomodoro.tracks.slice() : [45]
+    },
+    meditation: {
+      enabled: !!(rawAudio.meditation && rawAudio.meditation.enabled !== false),
+      tracks: (rawAudio.meditation && Array.isArray(rawAudio.meditation.tracks)) ? rawAudio.meditation.tracks.slice() : [45]
+    },
+    healing: {
+      enabled: !!(he && he.on),
+      require_dock: !!(rawAudio.healing && rawAudio.healing.require_dock !== false),
+      tracks: (rawAudio.healing && Array.isArray(rawAudio.healing.tracks)) ? rawAudio.healing.tracks.slice() : [45]
+    },
+    healing_schedules
+  };
+
+  // ── pomodoro ──
   const po=cat('pomodoro');
-  if(po){
-    J.pomodoro.enabled=RAW.pomodoro.enabled;
-    J.pomodoro.lap_mode_enabled=RAW.pomodoro.lap_mode_enabled;
-    J.pomodoro.focus_min=RAW.pomodoro.focus_min;
-    J.pomodoro.break_min=RAW.pomodoro.break_min;
-    J.pomodoro.cycles=RAW.pomodoro.cycles;
-    J.pomodoro.laps=po.times.map((t,i)=>{const end=t+po.durs[i]/60;
-      return {enabled:true,sh:Math.floor(t),sm:Math.round(t%1*60),eh:Math.floor(end)%24,em:Math.round(end%1*60)};});
-  }
-  // Keep the exported/synced payload matching the device schema exactly.
-  if(J.reminders?.hydration?.goal_ml !== undefined) delete J.reminders.hydration.goal_ml;
-  return J;
+  const rawPomo = (RAW && RAW.pomodoro) ? RAW.pomodoro : {};
+  const laps = (po && po.times)
+    ? po.times.map((t,i)=>{
+        const durMin = (po.durs && po.durs[i] != null) ? po.durs[i] : (po.dur || 60);
+        const end = t + durMin/60;
+        return {
+          enabled: true,
+          sh: Math.floor(t),
+          sm: Math.round(t%1*60),
+          eh: Math.floor(end)%24,
+          em: Math.round(end%1*60)
+        };
+      })
+    : (Array.isArray(rawPomo.laps) ? rawPomo.laps : []);
+  const defaultCounter={ x:118, y:105, text_size:1, text_color:65535, text_align:1 };
+  const pomodoro={
+    enabled: !!(rawPomo.enabled),
+    focus_min: rawPomo.focus_min != null ? rawPomo.focus_min : 25,
+    break_min: rawPomo.break_min != null ? rawPomo.break_min : 5,
+    cycles: rawPomo.cycles != null ? rawPomo.cycles : 4,
+    auto_start_break: rawPomo.auto_start_break !== false,
+    auto_start_focus: rawPomo.auto_start_focus !== false,
+    lap_mode_enabled: !!(rawPomo.lap_mode_enabled),
+    laps,
+    focus_counter: rawPomo.focus_counter ? {...defaultCounter, ...rawPomo.focus_counter} : {...defaultCounter},
+    break_counter: rawPomo.break_counter ? {...defaultCounter, ...rawPomo.break_counter} : {...defaultCounter}
+  };
+
+  return {
+    _meta: {
+      schema_ver: 6,
+      device: 'FROST'
+    },
+    reminders: {
+      hydration: winNode(cat('water'), 3600000),
+      stretch:   winNode(cat('stretch'), 3600000),
+      eye:       winNode(cat('eye'), 2700000),
+      walk:      winNode(cat('walk'), 7200000),
+      meditation,
+      medication,
+      custom
+    },
+    audio,
+    bottle_clean,
+    pomodoro
+  };
 }
 function snapSig(c){return `${c.on?'on':'off'} · ${c.times.length}× · ${c.dur}m · ${c.times.map(t=>t.toFixed(2)).join(',')}`;}
 function diffRows(){
@@ -1688,20 +1863,33 @@ function applyAction(a){
   if(a.op==='setdur'){ const d=clamp(+a.dur,1,180); if(c.durs)c.durs=c.durs.map(()=>d); else c.dur=d; return true; }
   if(a.op==='setinterval'){ c.type='win'; c.mode='interval'; c.every=+a.every||1;
     if(a.from!=null)c.from=toHM(a.from); if(a.to!=null)c.to=toHM(a.to); c.times=materialise(c); if(c.durs)c.durs=null; return true; }
-  if(a.op==='add'){ const t=toHM(a.time); c.times.push(t);
+  if(a.op==='add'){
+    forceAbsoluteMode(c);
+    const t=toHM(a.time); c.times.push(t);
     if(c.durs)c.durs.push(a.dur?+a.dur:(c.dur||1));
     if(c.labels){c.labels.push(a.label||c.label);}
     if(c.gi){const gi=c.groups?c.groups.length:0; c.gi.push(gi);
       if(c.groups){
         const base={name:a.label||c.label,times:[t],days:[0,1,2,3,4,5,6],enabled:true};
-        c.groups.push(c.k==='custom'
-          ?{...base,dur:c.dur||1,type:'recurring',date:null,id:nextCustomId(c.groups),modePairId:null}
-          :base);
+        if(c.k==='custom'){
+          c.groups.push({...base,dur:c.dur||1,type:'recurring',date:null,id:nextCustomId(c.groups),modePairId:null,
+            text_x:120,text_y:100,text_size:1,text_color:65535,text_align:1,text_width:180});
+        } else if(c.k==='meds'){
+          let maxMed=0;
+          c.groups.forEach(g=>{const n=Number(String(g?.id??'').match(/(\d+)$/)?.[1]);if(Number.isFinite(n)&&n>maxMed)maxMed=n;});
+          c.groups.push({...base,id:`med_${String(maxMed+1).padStart(3,'0')}`,start:'2026-01-01',end:'2026-12-31',
+            text_x:120,text_y:135,text_size:1,text_color:65535,text_align:1,text_width:180});
+        } else {
+          c.groups.push(base);
+        }
       }}
     if(!c.on)c.on=true; sortCat(c); return true; }
   if(a.op==='delete'){ if(c.times.length<=1){c.on=false;return true;} const i=idxByTime(c,a.time); if(i<0)return false;
+    forceAbsoluteMode(c);
     removeOccurrence(c,i); return true; }
-  if(a.op==='move'){ const i=idxByTime(c,a.from); if(i<0)return false; c.times[i]=toHM(a.to); sortCat(c); return true; }
+  if(a.op==='move'){ const i=idxByTime(c,a.from); if(i<0)return false;
+    forceAbsoluteMode(c);
+    c.times[i]=toHM(a.to); sortCat(c); return true; }
   if(a.op==='setlabel'){ if(!c.labels)return false; const i=idxByTime(c,a.time); if(i<0)return false; c.labels[i]=String(a.label).slice(0,25); return true; }
   return false;
 }
