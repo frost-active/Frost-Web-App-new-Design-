@@ -64,8 +64,8 @@
   .settings-card{max-width:680px}
   .settings-lead{font-size:13px;color:var(--ink);margin:-4px 0 18px;line-height:1.5}
   .settings-field{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid var(--faint);padding-top:16px;color:var(--ink);font-size:13px;font-weight:600}
-  .settings-number{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:400}
-  .settings-number input{width:90px;background:var(--panel2);border:1px solid var(--faint);border-radius:8px;color:var(--ink);font:700 15px Syne;padding:9px 10px;text-align:right}
+  .settings-number{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:400;flex:0 0 auto;max-width:100%}
+  .settings-number input{width:90px;min-width:90px;max-width:90px;flex:0 0 90px;background:var(--panel2);border:1px solid var(--faint);border-radius:8px;color:var(--ink);font:700 15px Syne;padding:9px 10px;text-align:right}
   .settings-number input:focus{outline:none;border-color:var(--sky)}
   .settings-help{color:var(--muted);font-size:11.5px;line-height:1.55;margin:14px 0 0;max-width:520px}
   /* ---------- DEVICE BINDING ---------- */

@@ -224,6 +224,7 @@ function forceAbsoluteMode(c){
 function buildCATS(J){
   const R=J.reminders;
   const winTimes=t=>t.map(o=>o.h+o.m/60);
+  const pomoBounds=pomoSessionBounds(J.pomodoro);
   return [
     { ...reminderDefinitions.water, k:'water', label:reminderDefinitions.water.label, color:reminderDefinitions.water.color, src:'hydration',
       type:'win', mode:R.hydration.mode==='interval'?'interval':'fixed', on:R.hydration.enabled,
@@ -287,11 +288,11 @@ function buildCATS(J){
       dur:(parseHM(J.audio.healing_schedules[0].end_time)-parseHM(J.audio.healing_schedules[0].start_time))*60,
       times:J.audio.healing_schedules.filter(s=>s.enabled).map(s=>parseHM(s.start_time)),
       days:dayNums(J.audio.healing_schedules[0].days) },
-    { k:'pomodoro', label:'Pomodoro', color:'--c-pomodoro', src:'pomodoro', type:'lap',
+    { k:'pomodoro', label:'Pomodoro', color:'--c-pomodoro', src:'pomodoro', type:'win', mode:'fixed',
       on:J.pomodoro.enabled && J.pomodoro.lap_mode_enabled,
-      times:(J.pomodoro.laps||[]).map(l=>l.sh+l.sm/60),
-      durs:(J.pomodoro.laps||[]).map(l=>Math.round(((l.eh*60+l.em)-(l.sh*60+l.sm)))),
-      dur:(J.pomodoro.laps&&J.pomodoro.laps[0])?Math.round((J.pomodoro.laps[0].eh*60+J.pomodoro.laps[0].em)-(J.pomodoro.laps[0].sh*60+J.pomodoro.laps[0].sm)):60,
+      from:0, to:24, every:1,
+      times:[pomoBounds.start],
+      dur:Math.max(1, Math.round((pomoBounds.end-pomoBounds.start)*60)),
       days:[0,1,2,3,4,5,6] },
   ];
 }
@@ -348,19 +349,29 @@ function normalizeSelection(){
 /* pomodoro ring shows only when the feature and lap-mode are both on */
 function syncPomo(){const c=CATS.find(x=>x.k==='pomodoro');if(c)c.on=RAW.pomodoro.enabled;}
 syncPomo();
-let pomoFrom=RAW.pomodoro.laps?.[0] ? RAW.pomodoro.laps[0].sh+RAW.pomodoro.laps[0].sm/60 : 9;
-let pomoTo=RAW.pomodoro.laps?.length ? RAW.pomodoro.laps[RAW.pomodoro.laps.length-1].eh+RAW.pomodoro.laps[RAW.pomodoro.laps.length-1].em/60 : 17;
-// "To" is a pure function of From, Focus, Break, Cycles — never user-set.
-// Session length = (Focus × Cycles) + (Break × (Cycles-1)); no trailing break
-// after the final focus lap, clamped so it never rolls past midnight.
-// "To" is a pure function of From, Focus, Break, Cycles — never user-set.
-// Each cycle = Focus + Break, repeated `cycles` times (break included even
-// after the final focus block). e.g. From 11:00, Focus 25, Break 5, Cycles 2
-// → (25+5)*2 = 60 min → To 12:00.
+// Single combined Pomodoro window: Start (pomoFrom) → End (pomoTo).
+// End is always a pure function of Start + Focus + Break + Cycles — never
+// user-set directly. Each cycle = Focus + Break, repeated `cycles` times
+// (break included even after the final focus block). e.g. Start 11:00,
+// Focus 25, Break 5, Cycles 2 → (25+5)*2 = 60 min → End 12:00.
 function computePomoTo(from, focusMin, breakMin, cycles){
   const totalMin = (focusMin + breakMin) * cycles;
   return Math.min(24, from + totalMin/60);
 }
+// Derives Start/End of the ONE Pomodoro window from whatever is currently in
+// RAW.pomodoro — used on initial load AND on every restored device config,
+// so the clock arc, the callout, and the Start/End fields are computed the
+// same way everywhere and never drift apart.
+function pomoSessionBounds(P){
+  const laps=P&&Array.isArray(P.laps)?P.laps:[];
+  const start=laps.length ? (laps[0].sh+laps[0].sm/60) : 9;
+  const focus=Math.max(1,Number(P&&P.focus_min)||25);
+  const brk=Math.max(0,Number(P&&P.break_min)||5);
+  const cycles=Math.max(1,Number(P&&P.cycles)||4);
+  return {start, end:computePomoTo(start, focus, brk, cycles)};
+}
+const _pomoInit=pomoSessionBounds(RAW.pomodoro);
+let pomoFrom=_pomoInit.start, pomoTo=_pomoInit.end;
 function buildPomoLaps(){
   const focus=Math.max(1,Number(RAW.pomodoro.focus_min)||1), brk=Math.max(0,Number(RAW.pomodoro.break_min)||0);
   const cycles=Math.max(1,Number(RAW.pomodoro.cycles)||1), laps=[];
@@ -371,11 +382,16 @@ function buildPomoLaps(){
     if(focusEnd>cursor)laps.push({enabled:true,sh:Math.floor(cursor),sm:Math.round(cursor%1*60),eh:Math.floor(focusEnd)%24,em:Math.round(focusEnd%1*60)});
     cursor=focusEnd+brk/60;                       // advance past this cycle's break too
   }
-  RAW.pomodoro.laps=laps;
-  const c=CATS.find(x=>x.k==='pomodoro');
-  if(c){c.times=laps.map(l=>l.sh+l.sm/60);c.durs=laps.map(l=>Math.max(1,(l.eh*60+l.em)-(l.sh*60+l.sm)));}
-  // Refresh the blocked "To" placeholder: (Focus + Break) × Cycles from From.
+  RAW.pomodoro.laps=laps;                          // device-facing individual focus/break laps
   pomoTo = computePomoTo(pomoFrom, focus, brk, cycles);
+  const c=CATS.find(x=>x.k==='pomodoro');
+  if(c){
+    // ONE continuous window on the clock/inspector — spans the whole
+    // Focus+Break×Cycles session, not one arc per lap.
+    c.times=[pomoFrom];
+    c.durs=null;
+    c.dur=Math.max(1, Math.round((pomoTo-pomoFrom)*60));
+  }
 }
 let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false;
 let bleClient: FrostBleClient|null=null;
@@ -404,6 +420,7 @@ window.addEventListener('frost-device-config',event=>{
   Object.assign(RAW,restored);
   CATS=buildActiveCategories(RAW);
   syncPomo();
+  { const _pb=pomoSessionBounds(RAW.pomodoro); pomoFrom=_pb.start; pomoTo=_pb.end; }
   device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
   syncedConfigAvailable=true;
   // Re-point the selection at the same event in the freshly loaded data (indices may have shifted)
@@ -604,8 +621,7 @@ function drawClock(){
     c.times.forEach((h,i)=>{
       const dd=occDur(c,i);
       const d=arcPath(r,h,h+dd/60);
-      // pomodoro laps take the muted colour of the period they fall in
-      const acol=c.k==='pomodoro'?zoneColor(h):col;
+      const acol=col;
       const p=E('path',{d,class:'seg'+(dimmed?' dim':''),stroke:acol,'stroke-width':BAND});
       p.dataset.k=c.k;p.dataset.i=i;
       if(sel&&sel.k===c.k&&sel.i===i)p.setAttribute('stroke-width',BAND+4);
@@ -617,7 +633,7 @@ function drawClock(){
   });
   if(sel){const c=CATS.find(x=>x.k===sel.k);
     if(c&&c.on&&c.times[sel.i]!=null){
-      const idx=active.indexOf(c),r=ringRadius(idx),h=c.times[sel.i],dd=occDur(c,sel.i),mid=h+(dd/60)/2,col=c.k==='pomodoro'?zoneColor(h):cvar(c.color);
+      const idx=active.indexOf(c),r=ringRadius(idx),h=c.times[sel.i],dd=occDur(c,sel.i),mid=h+(dd/60)/2,col=cvar(c.color);
       const [hx,hy]=pt(mid,r);                          // knob sits on the arc itself
       // Show full from–to only for Meditation, Healing and Pomodoro; otherwise exact start time only
       const showRange = (c.k==='meditation'||c.k==='healing'||c.k==='pomodoro');
@@ -719,17 +735,18 @@ function drawInspect(){
     ${c.k==='pomodoro'?'':uiTimeField('start','Start time',h)}`;
   const hydrationGoal = c.k==='water' ? `<div class="fld hydration-goal"><label for="hydrationGoal">Daily goal <output id="hydrationGoalValue">${Math.round(c.goal||0)} ml</output></label><input id="hydrationGoal" type="range" min="0" max="6000" step="100" value="${Math.round(c.goal||0)}" aria-label="Hydration goal in millilitres"><div class="range-scale"><span>0 ml</span><span>6000 ml</span></div><div class="applyall">Set the daily hydration goal on Aura</div></div>` : '';
   const P=RAW.pomodoro;
+  const pomoTotalMin=Math.round((P.focus_min+P.break_min)*P.cycles);
   const pomoBlock = c.k==='pomodoro' ? `
     <div class="pomo-window">
-      ${uiTimeField('pomoFrom','From',pomoFrom)}
-      <div class="pomo-to-time">${uiTimeField('pomoTo','To',pomoTo,true)}</div>
+      ${uiTimeField('pomoFrom','Start time',h)}
+      <div class="pomo-to-time">${uiTimeField('pomoTo','End time',h+dd/60,true)}</div>
     </div>
     <div class="pgrid">
       <div class="pcell"><label>Focus</label><div class="ctl step" data-pp="focus_min"><button data-d="-1">−</button><output>${P.focus_min}m</output><button data-d="1">+</button></div></div>
       <div class="pcell"><label>Break</label><div class="ctl step" data-pp="break_min"><button data-d="-1">−</button><output>${P.break_min}m</output><button data-d="1">+</button></div></div>
       <div class="pcell"><label>Cycles</label><div class="ctl step" data-pp="cycles"><button data-d="-1">−</button><output>${P.cycles}</output><button data-d="1">+</button></div></div>
     </div>
-    <div class="applyall">One set ≈ <b>${(P.focus_min+P.break_min)*P.cycles} min</b> · applies to every lap</div>` : '';
+    <div class="applyall">One window ≈ <b>${pomoTotalMin} min</b> · End time updates automatically from Start + Focus + Break × Cycles</div>` : '';
    box.innerHTML=`<h2>Timing</h2><div class="ttl"><i></i><div><b>${c.label}${sub}</b>${isWindowReminder||isMedication?`<div class="schedule-summary" style="color:${col}">${scheduleSummary}</div>`:''}</div></div>
     ${isWindowReminder||isMedication||isCustomReminder?'':`<div class="span" style="color:${col}">${fmt(h)} – ${fmt(h+dd/60)}</div>`}
     ${isCustomReminder?`<div class="span" style="color:${col}">${fmt(h)}</div>`:''}
@@ -744,7 +761,7 @@ function drawInspect(){
     ${isWindowReminder||c.k==='pomodoro'||isCustomReminder?'':`<div class="fld"><label>Duration</label><div class="ctl step" id="dur"><button data-d="-1">−</button><output>${dd} min</output><button data-d="1">+</button></div>
       <div class="applyall">${durNote}</div></div>`}
     ${pomoBlock}
-    <div class="rowbtns"><button class="btn grow" id="dup">Duplicate</button><button class="btn grow" id="del">Remove</button></div>
+    <div class="rowbtns">${c.k==='pomodoro'?'':'<button class="btn grow" id="dup">Duplicate</button>'}<button class="btn grow" id="del">Remove</button></div>
     <div class="nav2"><button id="prev">‹ Prev</button><span>${sel.i+1}/${c.times.length} · drag on clock too</span><button id="next">Next ›</button></div>`;
   if(isLabelled){
     const li=box.querySelector('#rlabel'), cc=box.querySelector('#cc');
@@ -894,7 +911,7 @@ function drawInspect(){
     if(c.durs){ c.durs[sel.i]=clamp(c.durs[sel.i]+(+b.dataset.d)*5,5,180); }
     else { c.dur=clamp(c.dur+(+b.dataset.d)*5,1,180); }
     renderConfigure();});
-  box.querySelector('#dup').addEventListener('click',()=>{
+  box.querySelector('#dup')?.addEventListener('click',()=>{
     forceAbsoluteMode(c);
     const nv=Math.min(23.75,h+Math.max(dd/60,.5));
     const duplicateLabel=c.labels?c.labels[sel.i]:null;
@@ -977,6 +994,7 @@ dial.addEventListener('pointermove',e=>{if(!drag)return;const r=dial.getBounding
 dial.addEventListener('pointerup',()=>{if(!drag)return;
   const c=CATS.find(x=>x.k===drag.k),moved=c.times[drag.i],movedGroup=c.gi?c.gi[drag.i]:null;
   forceAbsoluteMode(c);
+  if(c.k==='pomodoro'){ pomoFrom=c.times[0]; buildPomoLaps(); }   // keep Start/End + laps in sync after a drag
   sortCat(c);   // keeps times/durs/labels/gi aligned (custom + medication rely on gi)
   let ni=c.times.indexOf(moved);
   if(movedGroup!=null){const match=c.gi.findIndex((g,idx)=>g===movedGroup&&c.times[idx]===moved);if(match>=0)ni=match;}
@@ -1465,21 +1483,12 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   };
 
   // ── pomodoro ──
-  const po=cat('pomodoro');
   const rawPomo = (RAW && RAW.pomodoro) ? RAW.pomodoro : {};
-  const laps = (po && po.times)
-    ? po.times.map((t,i)=>{
-        const durMin = (po.durs && po.durs[i] != null) ? po.durs[i] : (po.dur || 60);
-        const end = t + durMin/60;
-        return {
-          enabled: true,
-          sh: Math.floor(t),
-          sm: Math.round(t%1*60),
-          eh: Math.floor(end)%24,
-          em: Math.round(end%1*60)
-        };
-      })
-    : (Array.isArray(rawPomo.laps) ? rawPomo.laps : []);
+  // Individual focus/break laps come from buildPomoLaps() (Start + Focus +
+  // Break + Cycles) and live on RAW.pomodoro.laps — the pomodoro category's
+  // own c.times/c.dur is just the single combined visual window on the
+  // clock, not a list of laps, so it's no longer used to build this array.
+  const laps = Array.isArray(rawPomo.laps) ? rawPomo.laps : [];
   const defaultCounter={ x:118, y:105, text_size:1, text_color:65535, text_align:1 };
   const pomodoro={
     enabled: !!(rawPomo.enabled),
