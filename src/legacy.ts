@@ -653,8 +653,9 @@ function drawClock(){
       // Show full from–to only for Meditation, Healing and Pomodoro; otherwise exact start time only
       const showRange = (c.k==='meditation'||c.k==='healing'||c.k==='pomodoro');
       const timeStr = showRange ? `${fmt(h)} – ${fmt(h+dd/60)}` : fmt(h);
+      const calloutName = c.k==='custom' ? (c.labels?.[sel.i] || c.label) : c.label;
       // callout first, so the dot always draws on top of it
-      calloutAt(s, hx, hy, `${c.label}`, timeStr, col);
+      calloutAt(s, hx, hy, calloutName, timeStr, col);
       const g=E('g',{class:'handle'}); g.dataset.k=c.k; g.dataset.i=sel.i;
       g.style.setProperty('--c',col);
       g.appendChild(E('circle',{cx:hx,cy:hy,r:26,fill:'transparent',stroke:'transparent'}));  // big thumb target
@@ -1055,11 +1056,11 @@ function daysInMonthForStats(){
 }
 function dailyHydrationGoal(){
   const water=CATS.find(c=>c.k==='water');
+  const fromCat=Number(water?.goal);
+  if(Number.isFinite(fromCat)&&fromCat>0) return fromCat;
   const latest=storedStatistics.length?storedStatistics[storedStatistics.length-1]:null;
   const fromRecord=Number(latest?.hyd_goal_ml);
   if(Number.isFinite(fromRecord)&&fromRecord>0) return fromRecord;
-  const fromCat=Number(water?.goal);
-  if(Number.isFinite(fromCat)&&fromCat>0) return fromCat;
   return 2000;
 }
 function periodHydrationGoal(daily){
