@@ -4,6 +4,9 @@ import { mountFrost } from './legacy';
 import QuickActions from './components/QuickActions';
 import Settings from './components/Settings';
 import DeviceBinding from './components/DeviceBinding';
+import { ConfigureClockPanel, ConfigureSidePanel, ConfigureChallengesPanel } from './pages/ConfigurePage';
+import { MyDayStore } from './components/configure/store';
+import type { ConfigureBridge } from './components/configure/types';
 import { useDeviceConfig } from './DeviceConfigSync';
 import type { User } from 'firebase/auth';
 
@@ -12,6 +15,10 @@ export default function HomeScreen({ user }: { user: User }) {
   const quickActionsRoot = useRef<Root | null>(null);
   const settingsRoot = useRef<Root | null>(null);
   const deviceBindingRoot = useRef<Root | null>(null);
+  const configureClockRoot = useRef<Root | null>(null);
+  const configureSideRoot = useRef<Root | null>(null);
+  const configureChallengesRoot = useRef<Root | null>(null);
+  const myDayStore = useRef<MyDayStore | null>(null);
   const [volume, setVolume] = useState(30);
   const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
@@ -68,9 +75,10 @@ export default function HomeScreen({ user }: { user: User }) {
     window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type, ...(value === undefined ? {} : { value }) } }));
   };
 
-  const renderSettings = (seconds: number) => settingsRoot.current?.render(
+  const renderSettings = (seconds: number, deviceConnected: boolean) => settingsRoot.current?.render(
     <Settings
       displaySeconds={seconds}
+      isDeviceConnected={deviceConnected}
       onDisplaySecondsChange={(value) => {
         setDisplaySeconds(value);
         window.dispatchEvent(new CustomEvent('frost-settings-change', { detail: { displaySeconds: value } }));
@@ -82,7 +90,26 @@ export default function HomeScreen({ user }: { user: User }) {
     const dashboard = dashboardRef.current;
     if (!dashboard) return;
 
-    mountFrost(dashboard, user);
+    const configureBridge = mountFrost(dashboard, user) as ConfigureBridge;
+
+    // Configure ("My day") tab: the schedule lives in legacy.ts; the habit tracker
+    // (streaks, challenges, audio library) is layered on top here, in the browser.
+    myDayStore.current = new MyDayStore(configureBridge, user.uid);
+    const configureClockHost = dashboard.querySelector<HTMLElement>('#configure-dial-root');
+    if (configureClockHost) {
+      configureClockRoot.current = createRoot(configureClockHost);
+      configureClockRoot.current.render(<ConfigureClockPanel store={myDayStore.current} />);
+    }
+    const configureSideHost = dashboard.querySelector<HTMLElement>('#configure-side-root');
+    if (configureSideHost) {
+      configureSideRoot.current = createRoot(configureSideHost);
+      configureSideRoot.current.render(<ConfigureSidePanel store={myDayStore.current} />);
+    }
+    const configureChallengesHost = dashboard.querySelector<HTMLElement>('#configure-challenges-root');
+    if (configureChallengesHost) {
+      configureChallengesRoot.current = createRoot(configureChallengesHost);
+      configureChallengesRoot.current.render(<ConfigureChallengesPanel store={myDayStore.current} />);
+    }
 
     const deviceBindingHost = dashboard.querySelector<HTMLElement>('#device-binding-root');
     if (deviceBindingHost) {
@@ -99,7 +126,7 @@ export default function HomeScreen({ user }: { user: User }) {
     const settingsHost = dashboard.querySelector<HTMLElement>('#settings-root');
     if (settingsHost) {
       settingsRoot.current = createRoot(settingsHost);
-      renderSettings(displaySeconds);
+      renderSettings(displaySeconds, isDeviceConnected);
     }
 
     return () => {
@@ -109,6 +136,14 @@ export default function HomeScreen({ user }: { user: User }) {
       settingsRoot.current = null;
       deviceBindingRoot.current?.unmount();
       deviceBindingRoot.current = null;
+      configureClockRoot.current?.unmount();
+      configureClockRoot.current = null;
+      configureSideRoot.current?.unmount();
+      configureSideRoot.current = null;
+      configureChallengesRoot.current?.unmount();
+      configureChallengesRoot.current = null;
+      myDayStore.current?.dispose();
+      myDayStore.current = null;
       dashboard.replaceChildren();
     };
   }, [user]);
@@ -118,8 +153,8 @@ export default function HomeScreen({ user }: { user: User }) {
   }, [volume, storedDndEnabled, isDeviceConnected]);
 
   useEffect(() => {
-    renderSettings(displaySeconds);
-  }, [displaySeconds]);
+    renderSettings(displaySeconds, isDeviceConnected);
+  }, [displaySeconds, isDeviceConnected]);
 
   return <main ref={dashboardRef} aria-label="FROST Aura device dashboard" />;
 }

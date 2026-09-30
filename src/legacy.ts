@@ -80,18 +80,20 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
 
   <!-- ============ CONFIGURE ============ -->
   <section id="page-configure">
-    <div class="ptitle">Day Clock</div>
-    <p class="psub">Each reminder is a coloured arc on its own ring — arc length is how long it lasts. Midnight up top, noon at the bottom. Drag an arc to move it; pick one to set its time and duration.</p>
-    <div class="stage">
-      <div class="clockcard">
-        <div class="clock-toolbar">
-          <button class="btn clock-sync" id="cfgSync" type="button" title="Send current schedule to your FROST Aura">Sync Now</button>
+    <div class="ptitle">My day</div>
+    <p class="psub">Every habit becomes an arc on the dial — that is when Aura cues it — and a loop on the rim — that is how far into its own streak you are, since each habit sets its own streak length. Challenge colleagues are simulated.</p>
+    <div class="cfg-daygrid">
+      <div class="cfg-daycol">
+        <div class="clockcard cfg-dialcard">
+          <div class="clock-toolbar">
+            <button class="btn clock-sync" id="cfgSync" type="button" title="Send current schedule to your FROST Aura">Sync Now</button>
+          </div>
+          <div id="configure-dial-root"></div>
         </div>
-        <svg class="dial" id="dial" viewBox="0 0 640 640" aria-label="24-hour reminder clock"></svg>
+        <div id="configure-challenges-root"></div>
       </div>
-      <div class="side">
-        <div class="card"><h2>Reminders</h2><div class="legend" id="legend"></div></div>
-        <div class="card insp" id="insp"></div>
+      <div class="cfg-daycol cfg-side">
+        <div id="configure-side-root" class="cfg-daycol"></div>
         <div class="timing-hint" id="timingHint">
           <span class="ic">⏱</span>
           <span><b>Timing</b> is hidden while you chat with Aura.</span>
@@ -110,7 +112,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
             <button id="auraSend">Send</button>
           </div>
         </div>
-        <p class="hint">Tap any arc to pick it — a <b style="color:var(--sky)">round handle</b> appears that you can drag around the clock to change its time. Sand slice is Do&nbsp;Not&nbsp;Disturb.</p>
       </div>
     </div>
   </section>
@@ -414,6 +415,14 @@ let deviceMac:string|null=null;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
 let storedStatistics:DeviceStatistics[]=[];
+/* Every place fresh statistics land — an explicit Sync on the Statistics tab, or the
+   realtime DB subscription — also republishes the Configure ("My day") view, so its
+   Acknowledged counts (and the centre tick mark) update immediately, automatically. */
+function setStoredStatistics(records:DeviceStatistics[]){
+  storedStatistics=records;
+  if(page==='stats')renderStats();
+  notifyConfigure();
+}
 let statisticsUnsubscribe:()=>void=()=>undefined;
 let device=snapshot();   // what Aura holds
 
@@ -464,14 +473,14 @@ window.addEventListener('frost-device-mac',event=>{
   if(mac) deviceMac=mac;
   statisticsUnsubscribe();
   // Always subscribe with the bound device MAC (when known) + user so stats remain available after disconnect.
-  statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
+  statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
 });
 window.addEventListener('frost-device-disconnected',()=>{
   // Keep the last known deviceMac so DB statistics for the bound device continue to load.
   // Do not clear storedStatistics or force a null-MAC subscription — show what is already in the database.
   if(deviceMac){
     statisticsUnsubscribe();
-    statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
+    statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
   }
 });
 
@@ -532,12 +541,10 @@ const R_INNER_MIN=86;
 let STEP=21, BAND=13;
 /* switch between full circle (desktop) and bottom-anchored semicircle (mobile) */
 function applyMode(){
-  const wasHalf=HALF;
-  HALF = !!(window.matchMedia && window.matchMedia('(max-width:680px)').matches);
-  const dial=document.getElementById('dial');
-  if(HALF){ CXc=30; CYc=320; VBW=348; VBH=640; dial.setAttribute('viewBox','0 0 348 640'); }
-  else    { CXc=CX; CYc=CY;  VBW=640; VBH=640; dial.setAttribute('viewBox','0 0 640 640'); }
-  if(wasHalf!==HALF && document.getElementById('legend')) renderConfigure();
+  // The Configure dial is now a real 12-hour analog face (see ConfigureDial.tsx) —
+  // always a full circle, scaled responsively by its own container CSS, exactly
+  // like the My day prototype. No separate mobile semicircle layout any more.
+  HALF=false; CXc=CX; CYc=CY; VBW=640; VBH=640;
 }
 function computeGeom(n){
   STEP = n>1 ? Math.min(21, (R_RING_OUT-R_INNER_MIN)/(n-1)) : 21;
@@ -545,493 +552,314 @@ function computeGeom(n){
 }
 const ringRadius=idx=>R_RING_OUT - idx*STEP;
 
-/* time-of-day zones — muted glyphs so users can see where morning/noon/evening/night sit */
-const ZONES=[
-  {name:'Morning', icon:'sunrise', from:6,  to:12, col:'#C79A6B', at:[598,590]}, // lower-right
-  {name:'Noon',    icon:'sun',     from:12, to:17, col:'#C7AE62', at:[44,590]},   // lower-left
-  {name:'Evening', icon:'sunset',  from:17, to:21, col:'#B27C6D', at:[44,52]},    // upper-left
-  {name:'Night',   icon:'moon',    from:21, to:6,  col:'#7E88A6', at:[598,52]},   // upper-right
-];
-function zoneIcon(type,cx,cy,col,title){
-  const g=E('g',{class:'zicon'}); g.setAttribute('stroke',col);
-  const tt=E('title',{}); tt.textContent=title; g.appendChild(tt);
-  const add=(t,a)=>g.appendChild(E(t,a));
-  if(type==='sun'){
-    add('circle',{cx,cy,r:6,fill:'none','stroke-width':2});
-    for(let i=0;i<8;i++){const a=i*Math.PI/4;
-      add('line',{x1:cx+Math.cos(a)*9,y1:cy+Math.sin(a)*9,x2:cx+Math.cos(a)*12.5,y2:cy+Math.sin(a)*12.5,'stroke-width':2,'stroke-linecap':'round'});}
-  } else if(type==='moon'){
-    add('path',{d:`M ${cx+4} ${cy-8} A 8 8 0 1 0 ${cx+4} ${cy+8} A 6 6 0 1 1 ${cx+4} ${cy-8} Z`,fill:col,stroke:'none',opacity:.85});
-  } else { // sunrise / sunset — sun rising above / sinking below the horizon
-    const ly=cy+6, up=type==='sunrise';
-    add('line',{x1:cx-11,y1:ly,x2:cx+11,y2:ly,'stroke-width':2,'stroke-linecap':'round'});          // horizon
-    add('path',{d:up?`M ${cx-6} ${ly} A 6 6 0 0 1 ${cx+6} ${ly}`
-                    :`M ${cx-6} ${ly} A 6 6 0 0 0 ${cx+6} ${ly}`,fill:'none','stroke-width':2});     // half sun
-    [-1,0,1].forEach(k=>add('line',{x1:cx+k*7,y1:ly-8+Math.abs(k)*2,x2:cx+k*9,y2:ly-12+Math.abs(k)*2,'stroke-width':2,'stroke-linecap':'round'})); // rays
-  }
-  return g;
+/* ================= CONFIGURE (React bridge) =================
+   The Configure tab UI is React (src/pages/ConfigurePage.tsx + src/components/configure/*).
+   Schedule state and every mutation stay in this file, so device sync, Aura, statistics
+   and the JSON export behave exactly as before. React reads a snapshot through
+   getConfigureView() and calls the cfg* actions below; renderConfigure() publishes a fresh
+   snapshot after each change. Actions address a habit explicitly: (category key, group id). */
+const cfgListeners=new Set();
+let cfgVersion=0, cfgView=null;
+/* Which reminders have actually been added through the new My day UI (or restored from
+   a real device/cloud sync) — everything else (factory-default sample data the person
+   never asked for) stays out of the exported JSON, even though it still lives in RAW. */
+const cfgAddedIds=new Set();
+function cfgMarkAdded(id){ cfgAddedIds.add(id); }
+function cfgVisible(id){ return syncedConfigAvailable || cfgAddedIds.has(id); }
+/* Device-JSON validity window per reminder (id = cat.k, or `${cat.k}:${gid}` for medicine/habit
+   groups), pushed from the My day tracker whenever a streak length, active days, or a custom
+   habit's date changes. Purely a JSON-export concern — never touches CATS/RAW or the dial. */
+const cfgStreakWindows={};
+function cfgSetStreakWindow(id,start,end){ cfgStreakWindows[id]={start,end}; }
+function cfgStreakWindowFor(id,days,startOverride){
+  const w=cfgStreakWindows[id];
+  if(w) return w;
+  // Nothing pushed yet (habit added before this feature, or never touched) — a sensible
+  // 21-day default from startOverride (if given, e.g. a medicine's own course start) or
+  // from today, recomputed fresh each export until the person changes it.
+  const start=startOverride||localISODate();
+  const active=(days&&days.length)?days:[0,1,2,3,4,5,6];
+  let d=new Date(start+'T00:00:00'),count=0,result=d;
+  while(count<21){ if(active.includes(d.getDay())){count++;result=d;} if(count<21) d=new Date(d.getTime()+86400000); }
+  const pad=n=>String(n).padStart(2,'0');
+  return {start, end:`${result.getFullYear()}-${pad(result.getMonth()+1)}-${pad(result.getDate())}`};
 }
-function drawZoneFills(s){
-  // four muted quadrant tints matching the time-of-day icons
-  ZONES.forEach(z=>s.appendChild(E('path',{d:wedge(z.from,z.to,R_RIM),class:'zone-fill',fill:z.col})));
-}
-function drawZones(s){
-  if(HALF) return;   // corner icons/boundary spokes are laid out for the full circle
-  // faint boundary spokes at the four period edges
-  [6,12,17,21].forEach(h=>{const[x0,y0]=pt(h,70),[x1,y1]=pt(h,R_RIM);
-    s.appendChild(E('line',{x1:x0,y1:y0,x2:x1,y2:y1,class:'zone-edge'}));});
-  // muted corner glyphs, each pointing at its quadrant
-  ZONES.forEach(z=>{
-    const rng=h24?`${hourLabel(z.from)}–${hourLabel(z.to)}`
-                 :`${hourLabel(z.from)}${z.from>=12?'p':'a'}–${hourLabel(z.to)}${(z.to>=12&&z.to<24)?'p':'a'}`;
-    s.appendChild(zoneIcon(z.icon,z.at[0],z.at[1],z.col,`${z.name} · ${rng}`));
-  });
-}
-
-function drawClock(){
-  const s=document.getElementById('dial'); s.innerHTML=''; s.classList.toggle('grid-off',!grid);
-  drawZoneFills(s);                                            // 4 muted quadrant tints (background)
-
-  const active=CATS.filter(c=>c.on);
-  computeGeom(active.length);
-  const rInner=ringRadius(Math.max(0,active.length-1))-BAND/2-4, rOuter=R_RIM;
-  for(let h=0;h<24;h++)[h,h+0.5].forEach((hh,mi)=>{
-    const [x0,y0]=pt(hh,rInner),[x1,y1]=pt(hh,rOuter);
-    s.appendChild(E('line',{x1:x0,y1:y0,x2:x1,y2:y1,class:'grid-spoke'+(mi===0?' major':'')}));
-  });
-  active.forEach((c,idx)=>s.appendChild(E('circle',{cx:CXc,cy:CYc,r:ringRadius(idx)+STEP/2,class:'grid-ring'})));
-
-  if(HALF) s.appendChild(E('path',{d:arcPath(R_RIM,0,24),class:'rim-track','stroke-width':7,fill:'none'}));
-  else s.appendChild(E('circle',{cx:CXc,cy:CYc,r:R_RIM,class:'rim-track','stroke-width':7}));
-  drawZones(s);   // boundary spokes + corner icons, above the fills/rings
-  for(let h=0;h<24;h+=1){const major=h%3===0;const[x0,y0]=pt(h,R_TICK_OUT-(major?12:8)),[x1,y1]=pt(h,R_TICK_OUT);
-    s.appendChild(E('line',{x1:x0,y1:y0,x2:x1,y2:y1,class:'hourtick'+(major?' major':'')}));
-    if(major){
-      // Keep the top (midnight / 12 / 00) numeral above the callout so it stays readable
-      const labelR = (!HALF && h===0) ? R_NUM+6 : R_NUM;
-      const[lx,ly]=pt(h,labelR);
-      const t=E('text',{x:lx,y:ly,class:'hourlbl'});t.textContent=hourLabel(h);s.appendChild(t);
-    }}
-  const rNow=ringRadius(Math.max(0,active.length-1))-BAND/2-6;   // just inside the innermost ring
-  const [nx,ny]=pt(NOW_H,rNow);
-  s.appendChild(E('circle',{cx:nx,cy:ny,r:5,class:'nowdot'}));
-  // centre readout: live clock (hr:min only) — middle (full) or left-centre (side)
-  // Use dedicated ids so the live timer can update without a full redraw.
-  if(HALF){
-    const bt=E('text',{x:CXc+2,y:CYc+2,'text-anchor':'start',id:'liveClock'});bt.innerHTML=`<tspan style="font:800 18px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
-    const total=active.reduce((a,c)=>a+c.times.length,0);
-    const st=E('text',{x:CXc+2,y:CYc+18,'text-anchor':'start'});st.innerHTML=`<tspan style="fill:var(--muted);font:500 9px 'DM Sans';letter-spacing:.1em">${total} REMINDERS</tspan>`;s.appendChild(st);
-  } else {
-    const bt=E('text',{x:CXc,y:CYc-1,'text-anchor':'middle',id:'liveClock'});bt.innerHTML=`<tspan style="font:800 19px Syne;fill:var(--ink)">${fmt(NOW_H)}</tspan>`;s.appendChild(bt);
-    const total=active.reduce((a,c)=>a+c.times.length,0);
-    const st=E('text',{x:CXc,y:CYc+12,'text-anchor':'middle'});st.innerHTML=`<tspan style="fill:var(--muted);font:500 8px 'DM Sans';letter-spacing:.12em">${total} REMINDERS</tspan>`;s.appendChild(st);
-  }
-
-  const zoneColor=h=>{h=(h+24)%24;const z=ZONES.find(z=>z.from<z.to?(h>=z.from&&h<z.to):(h>=z.from||h<z.to));return z?z.col:cvar('--c-pomodoro');};
-  const selReal=sel&&CATS.some(x=>x.k===sel.k);   // don't dim rings when DND (not a ring) is selected
-  active.forEach((c,idx)=>{
-    const r=ringRadius(idx),col=cvar(c.color),dimmed=selReal&&sel.k!==c.k;
-    if(HALF) s.appendChild(E('path',{d:arcPath(r,0,24),class:'cattrack',stroke:'rgba(230,241,248,.05)','stroke-width':BAND,fill:'none'}));
-    else s.appendChild(E('circle',{cx:CXc,cy:CYc,r,class:'cattrack',stroke:'rgba(230,241,248,.05)','stroke-width':BAND}));
-    c.times.forEach((h,i)=>{
-      const dd=occDur(c,i);
-      const d=arcPath(r,h,h+dd/60);
-      const acol=col;
-      const p=E('path',{d,class:'seg'+(dimmed?' dim':''),stroke:acol,'stroke-width':BAND});
-      p.dataset.k=c.k;p.dataset.i=i;
-      if(sel&&sel.k===c.k&&sel.i===i)p.setAttribute('stroke-width',BAND+4);
-      s.appendChild(p);
-      const hit=E('path',{d,class:'seg hit',stroke:'transparent','stroke-width':STEP+6,'stroke-linecap':'round'});
-      hit.dataset.k=c.k;hit.dataset.i=i;
-      s.appendChild(hit);
-    });
-  });
-  if(sel){const c=CATS.find(x=>x.k===sel.k);
-    if(c&&c.on&&c.times[sel.i]!=null){
-      const idx=active.indexOf(c),r=ringRadius(idx),h=c.times[sel.i],dd=occDur(c,sel.i),mid=h+(dd/60)/2,col=cvar(c.color);
-      const [hx,hy]=pt(mid,r);                          // knob sits on the arc itself
-      // Show full from–to only for Meditation, Healing and Pomodoro; otherwise exact start time only
-      const showRange = (c.k==='meditation'||c.k==='healing'||c.k==='pomodoro');
-      const timeStr = showRange ? `${fmt(h)} – ${fmt(h+dd/60)}` : fmt(h);
-      const calloutName = c.k==='custom' ? (c.labels?.[sel.i] || c.label) : c.label;
-      // callout first, so the dot always draws on top of it
-      calloutAt(s, hx, hy, calloutName, timeStr, col);
-      const g=E('g',{class:'handle'}); g.dataset.k=c.k; g.dataset.i=sel.i;
-      g.style.setProperty('--c',col);
-      g.appendChild(E('circle',{cx:hx,cy:hy,r:26,fill:'transparent',stroke:'transparent'}));  // big thumb target
-      if(!drag) g.appendChild(E('circle',{cx:hx,cy:hy,r:13,class:'halo pulse'}));   // half size
-      g.appendChild(E('circle',{cx:hx,cy:hy,r:11,class:'halo'}));
-      g.appendChild(E('circle',{cx:hx,cy:hy,r:9,class:'knob'}));
-      [-3,0,3].forEach(dx=>g.appendChild(E('line',{x1:hx+dx,y1:hy-2.5,x2:hx+dx,y2:hy+2.5,class:'grip'})));
-      s.appendChild(g);
-    }}
-}
-/* Callout pinned near the top of the clock — placed below the 12/00 hour
-   label so the number stays visible. Reflects selected reminder colour, name and time. */
-function calloutAt(s,hx,hy,name,time,col){
-  const w=Math.max(name.length*7.2, time.length*6.6)+22, hgt=36, PAD=8;
-  // Sit just below the top hour numeral (R_NUM ≈ 294 → label near y≈26 on full dial)
-  // so 12 / 00 remains readable above the callout.
-  const by = HALF ? 14 : 48;
-  const bx=clamp(VBW/2-w/2, PAD, VBW-w-PAD);
-  const g=E('g',{class:'callout'}); g.style.setProperty('--c',col);
-  g.appendChild(E('rect',{x:bx,y:by,width:w,height:hgt,rx:9,class:'cbox'}));
-  const t1=E('text',{x:bx+w/2,y:by+15,'text-anchor':'middle',class:'cname'});t1.setAttribute('style',`fill:${col}`);t1.textContent=name;
-  const t2=E('text',{x:bx+w/2,y:by+28,'text-anchor':'middle',class:'ctime'});t2.textContent=time;
-  g.appendChild(t1);g.appendChild(t2);s.appendChild(g);
-}
-function modeLabel(c){
-  if(c.type==='lap') return 'focus window';
-  if(c.type==='ev') return c.k==='meds'?'doses':'events';
-  if(c.mode==='interval') return 'every '+(c.every<1?Math.round(c.every*60)+'m':c.every+'h');
-  if(c.dur>=45) return 'window';
-  return 'fixed';
-}
-function drawLegend(){
-  const L=document.getElementById('legend');L.innerHTML='';
-  CATS.forEach(c=>{const d=document.createElement('div');
-    d.className='leg '+(c.on?'on':'off')+(sel&&sel.k===c.k?' sel':'');d.style.setProperty('--c',cvar(c.color));
-    d.innerHTML=`<span class="rail"></span><span class="nm">${c.label}</span><span class="du">${modeLabel(c)} · ${c.dur} min</span><span class="ct">×${c.times.length}</span><span class="sw"></span>`;
-    d.querySelector('.sw').addEventListener('click',e=>{e.stopPropagation();c.on=!c.on;
-      if(c.k==='pomodoro'){RAW.pomodoro.enabled=c.on;if(c.on&&RAW.pomodoro.lap_mode_enabled)buildPomoLaps();}
-      if(!c.on&&sel&&sel.k===c.k)sel=null;renderConfigure();});
-    d.addEventListener('click',()=>{if((c.on||c.k==='pomodoro')&&c.times.length){sel={k:c.k,i:0};renderConfigure();maybeScroll();}});
-    L.appendChild(d);});
-}
-function drawInspect(){
-  const box=document.getElementById('insp');
-  if(!sel){box.innerHTML='<h2>Timing</h2><div class="none">Pick an arc on the clock — or a reminder above — to set its start time and how long it lasts.</div>';return;}
-  const c=CATS.find(x=>x.k===sel.k),h=c.times[sel.i],col=cvar(c.color);box.style.setProperty('--c',col);
-  const dd=occDur(c,sel.i);
-  const sub=(c.labels&&c.labels[sel.i])?` — ${c.labels[sel.i]}`:'';
-  const isLabelled = c.k==='meds'||c.k==='custom';
-  const medicationGroup = c.k==='meds' && c.groups[c.gi[sel.i]] ? c.groups[c.gi[sel.i]] : null;
-  const customGroup = c.k==='custom' && c.groups[c.gi[sel.i]] ? c.groups[c.gi[sel.i]] : null;
-  const selectedGroup = medicationGroup || customGroup;
-  const isBottleClean = c.k==='clean';
-  const isWindowReminder = c.type==='win' && ['water','eye','stretch','walk','clean'].includes(c.k);
-  const customMode = customGroup ? (customGroup.type === 'absolute' ? 'absolute' : 'recurring') : 'recurring';
-  const canEditActiveDays = !isBottleClean && ( (selectedGroup && !(c.k==='custom' && customMode==='absolute')) || ['water','eye','stretch','walk','meditation','healing'].includes(c.k) );
-  const activeDays = selectedGroup ? selectedGroup.days : (c.days || []);
-  const activeDaysPicker = canEditActiveDays ? `
-    <div class="fld"><label>Active days</label><div class="day-picker">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day,index)=>`<button type="button" class="day-chip ${activeDays.includes(index)?'active':''}" data-day="${index}" aria-pressed="${activeDays.includes(index)}">${day}</button>`).join('')}</div></div>` : '';
-  const customModeField = c.k==='custom' ? `
-    <div class="fld"><label>Reminder Mode</label>
-      <div class="seg-ctl custom-mode" id="customModeCtl">
-        <button type="button" data-mode="recurring" aria-pressed="${customMode==='recurring'}">Events</button>
-        <button type="button" data-mode="absolute" aria-pressed="${customMode==='absolute'}">Specific</button>
-      </div>
-      <div class="applyall">Events = repeats on selected days · Specific = one date only</div>
-    </div>` : '';
-  const customDateField = (c.k==='custom' && customMode==='absolute') ? `
-    <div class="fld"><label>Date</label><input type="date" id="customDate" value="${esc(customGroup.date || localISODate())}"></div>` : '';
-  const intervalDaysField = isBottleClean ? `
-    <div class="fld"><label>Interval days</label><div class="ctl step" id="intervalDays"><button data-d="-1">−</button><output>${Math.max(1, Number(c.everyDays || 1))}</output><button data-d="1">+</button></div>
-      <div class="applyall">Set how many days between each Bottle Clean reminder.</div></div>` : '';
-  const labelField = isLabelled ? `
-    <div class="fld"><label>Label <span class="cc" id="cc">${(c.labels[sel.i]||'').length}/25</span></label>
-      <div class="ctl"><input type="text" id="rlabel" maxlength="25" value="${esc(c.labels[sel.i]||'')}"
-        placeholder="${c.k==='meds'?'e.g. Take Pill':'e.g. Happy Birthday'}"></div>
-      <div class="applyall">Shown on the device screen · up to 25 characters</div></div>` : '';
-  const medicationSchedule = medicationGroup ? `
-    <div class="med-schedule">
-      <div class="date-grid">
-        <div class="fld"><label>Start date</label><input type="date" id="medStart" value="${medicationGroup.start||''}"></div>
-        <div class="fld"><label>End date</label><input type="date" id="medEnd" value="${medicationGroup.end||''}"></div>
-      </div>
-    </div>` : '';
-  const perOcc = !!c.durs;
-  const durNote = perOcc
-    ? `Length of <b>this ${c.label.toLowerCase()} window</b>`
-    : `Sets the length for <b>all ${c.times.length} ${c.label}</b> reminders`;
-   const isMedication = c.k==='meds';
-  const isCustomReminder = c.k==='custom';
-  const scheduleSummary = isWindowReminder || isMedication ? `At ${fmt(h)} · reminder` : '';
-  const modeEditor = isWindowReminder ? uiTimeField('absoluteTime','Reminder time',h) : `
-    ${c.k==='pomodoro'?'':uiTimeField('start','Start time',h)}`;
-  const hydrationGoal = c.k==='water' ? `<div class="fld hydration-goal"><label for="hydrationGoal">Daily goal <output id="hydrationGoalValue">${Math.round(c.goal||0)} ml</output></label><input id="hydrationGoal" type="range" min="0" max="6000" step="100" value="${Math.round(c.goal||0)}" aria-label="Hydration goal in millilitres"><div class="range-scale"><span>0 ml</span><span>6000 ml</span></div><div class="applyall">Set the daily hydration goal on Aura</div></div>` : '';
-  const P=RAW.pomodoro;
-  const pomoTotalMin=Math.round((P.focus_min+P.break_min)*P.cycles);
-  const pomoBlock = c.k==='pomodoro' ? `
-    <div class="pomo-window">
-      ${uiTimeField('pomoFrom','Start time',h)}
-      <div class="pomo-to-time">${uiTimeField('pomoTo','End time',h+dd/60,true)}</div>
-    </div>
-    <div class="pgrid">
-      <div class="pcell"><label>Focus</label><div class="ctl step" data-pp="focus_min"><button data-d="-1">−</button><output>${P.focus_min}m</output><button data-d="1">+</button></div></div>
-      <div class="pcell"><label>Break</label><div class="ctl step" data-pp="break_min"><button data-d="-1">−</button><output>${P.break_min}m</output><button data-d="1">+</button></div></div>
-      <div class="pcell"><label>Cycles</label><div class="ctl step" data-pp="cycles"><button data-d="-1">−</button><output>${P.cycles}</output><button data-d="1">+</button></div></div>
-    </div>
-    <div class="applyall">One window ≈ <b>${pomoTotalMin} min</b> · End time updates automatically from Start + Focus + Break × Cycles</div>` : '';
-   box.innerHTML=`<h2>Timing</h2><div class="ttl"><i></i><div><b>${c.label}${sub}</b>${isWindowReminder||isMedication?`<div class="schedule-summary" style="color:${col}">${scheduleSummary}</div>`:''}</div></div>
-    ${isWindowReminder||isMedication||isCustomReminder?'':`<div class="span" style="color:${col}">${fmt(h)} – ${fmt(h+dd/60)}</div>`}
-    ${isCustomReminder?`<div class="span" style="color:${col}">${fmt(h)}</div>`:''}
-    <div class="meta">${modeLabel(c)} · ${c.type==='lap'?'lap':'reminder'} ${sel.i+1} of ${c.times.length} · <span style="color:${col}">drag the handle to move</span></div>
-    ${labelField}
-    ${medicationSchedule}
-    ${customModeField || ''}
-    ${customDateField || ''}
-    ${isBottleClean ? intervalDaysField : activeDaysPicker}
-    ${modeEditor}
-    ${hydrationGoal}
-    ${isWindowReminder||c.k==='pomodoro'||isCustomReminder?'':`<div class="fld"><label>Duration</label><div class="ctl step" id="dur"><button data-d="-1">−</button><output>${dd} min</output><button data-d="1">+</button></div>
-      <div class="applyall">${durNote}</div></div>`}
-    ${pomoBlock}
-    <div class="rowbtns"><button class="btn grow" id="dup">Duplicate</button><button class="btn grow" id="del">Remove</button></div>
-    <div class="nav2"><button id="prev">‹ Prev</button><span>${sel.i+1}/${c.times.length} · drag on clock too</span><button id="next">Next ›</button></div>`;
-  if(isLabelled){
-    const li=box.querySelector('#rlabel'), cc=box.querySelector('#cc');
-    li.addEventListener('input',()=>{
-      const v=li.value.slice(0,25);
-      c.labels[sel.i]=v; cc.textContent=v.length+'/25';
-      if(c.k==='custom' && customGroup) customGroup.name = v;
-      if(c.k==='meds' && medicationGroup) medicationGroup.name = v;
-    });
-    li.addEventListener('change',()=>renderConfigure());
-  }
-  if(medicationGroup){
-    box.querySelector('#medStart').addEventListener('change',e=>{medicationGroup.start=e.target.value;});
-    box.querySelector('#medEnd').addEventListener('change',e=>{medicationGroup.end=e.target.value;});
-  }
-  if(c.k==='custom' && customGroup){
-    const modeCtl = box.querySelector('#customModeCtl');
-    modeCtl?.querySelectorAll('button').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        const mode = btn.dataset.mode === 'absolute' ? 'absolute' : 'recurring';
-        if(mode === customMode) return;                       // already showing this mode
-        const currentGroupIndex = c.gi[sel.i];
-        const pairId = customGroup.modePairId || customGroup.id || `custom_pair_${currentGroupIndex}`;
-        customGroup.modePairId = pairId;
-
-        // 1) Partner already linked by pair id (same session, or restored from the cloud copy)
-        let targetGroupIndex = c.groups.findIndex((group, index) =>
-          index !== currentGroupIndex && group.modePairId === pairId && customType(group) === mode);
-
-        // 2) Config restored without pair ids: link by position among still-unpaired groups
-        if(targetGroupIndex < 0){
-          const unpaired = type => c.groups
-            .map((group, index) => ({ group, index }))
-            .filter(({ group, index }) => customType(group) === type &&
-              (index === currentGroupIndex || !group.modePairId || group.modePairId === pairId));
-          const position = unpaired(customMode).findIndex(entry => entry.index === currentGroupIndex);
-          const match = position >= 0 ? unpaired(mode)[position] : undefined;
-          if(match){
-            targetGroupIndex = match.index;                     // numeric index, not the object
-            c.groups[targetGroupIndex].modePairId = pairId;
-          }
-        }
-
-        // 3) No partner yet: create one seeded from this card's current time/days
-        if(targetGroupIndex < 0){
-          c.groups.push({
-            ...customGroup,
-            id: nextCustomId(c.groups),
-            modePairId: pairId,
-            type: mode,
-            name: '',
-            times: [h],
-            days: [...(customGroup.days?.length ? customGroup.days : [0,1,2,3,4,5,6])],
-            date: customGroup.date || localISODate()
-          });
-          targetGroupIndex = c.groups.length - 1;
-        }
-
-        // Ensure the partner has an occurrence on the clock, then select it
-        let targetOccurrenceIndex = c.gi.indexOf(targetGroupIndex);
-        if(targetOccurrenceIndex < 0){
-          const target = c.groups[targetGroupIndex];
-          const t = Number.isFinite(target.times?.[0]) ? target.times[0] : h;
-          c.times.push(t);
-          c.labels.push(target.name || '');
-          c.gi.push(targetGroupIndex);
-          sortCat(c);
-          targetOccurrenceIndex = c.gi.indexOf(targetGroupIndex);
-        }
-        sel = { k: c.k, i: targetOccurrenceIndex };
-        renderConfigure();
-      });
-    });
-    const dateInput = box.querySelector('#customDate');
-    if(dateInput){
-      dateInput.addEventListener('change',()=>{
-        customGroup.date = dateInput.value || localISODate();
-        renderConfigure();
-      });
-    }
-  }
-  if(canEditActiveDays){
-    const dayList = selectedGroup ? selectedGroup.days : c.days;
-    box.querySelectorAll('.day-chip').forEach(button=>button.addEventListener('click',()=>{
-      const day=Number(button.dataset.day), index=dayList.indexOf(day);
-      if(index>=0)dayList.splice(index,1); else dayList.push(day);
-      dayList.sort((a,b)=>a-b); renderConfigure();
-    }));
-  }
-  if(isBottleClean){
-    const intervalControl=box.querySelector('#intervalDays');
-    intervalControl?.addEventListener('click',e=>{
-      const b=e.target.closest('button'); if(!b) return;
-      const delta=Number(b.dataset.d||0);
-      c.everyDays = Math.max(1, Number(c.everyDays || 1) + delta);
-      renderConfigure();
-    });
-  }
-  const updateAbsoluteTime=(nv)=>{
-    forceAbsoluteMode(c); // keep internal mode in sync so abs.times is used on sync
-    if(c.durs){ // keep durs paired with times through the sort
-      const pairs=c.times.map((t,i)=>({t:i===sel.i?nv:t,d:c.durs[i],g:c.gi?c.gi[i]:null,l:c.labels?c.labels[i]:null}));
-      pairs.sort((a,b)=>a.t-b.t);
-      c.times=pairs.map(p=>p.t); c.durs=pairs.map(p=>p.d);
-      sel.i=c.times.indexOf(nv);
+function notifyConfigure(){cfgVersion++;cfgView=null;cfgListeners.forEach(l=>l());}
+function getConfigureView(){
+  if(cfgView)return cfgView;
+  const ackToday={};
+  Object.keys(STAT_FIELD).forEach(k=>{
+    // Hydration's target is a volume (ml), not a cue count, so it's scored off today's
+    // real ml total rather than the reminder-acknowledged count every other habit uses.
+    if(k==='water'){
+      const today=storedStatistics.length?storedStatistics[storedStatistics.length-1]:null;
+      ackToday[k]=today?Math.max(0,Number(today.hyd_ml||0)):0;
     } else {
-      const pairs=c.times.map((time,index)=>({
-        time:index===sel.i?nv:time,
-        label:c.labels?c.labels[index]:null,
-        group:c.gi?c.gi[index]:null,
-      }));
-      pairs.sort((a,b)=>a.time-b.time);
-      c.times=pairs.map(pair=>pair.time);
-      if(c.labels)c.labels=pairs.map(pair=>pair.label);
-      if(c.gi)c.gi=pairs.map(pair=>pair.group);
-      sel.i=c.times.indexOf(nv);
+      ackToday[k]=realDayCounts(k).ack;
     }
-    renderConfigure();
+  });
+  cfgView={
+    version:cfgVersion, cats:CATS, sel:sel?{k:sel.k,i:sel.i}:null,
+    nowH:NOW_H, dnd:[DND[0],DND[1]], dndOn:Boolean(dndOn),
+    pomo:{focus:RAW.pomodoro.focus_min,brk:RAW.pomodoro.break_min,cycles:RAW.pomodoro.cycles},
+    today:localISODate(), synced:syncedConfigAvailable, ackToday
   };
-  if(isWindowReminder){
-    bindUiTime(box,'absoluteTime',nv=>updateAbsoluteTime(nv));
-  } else if(c.k==='pomodoro'){
-    RAW.pomodoro.lap_mode_enabled=true;
-    // "To" is computed, not user-input — only "From" drives recalculation.
-    // buildPomoLaps() derives each window's end from its Start + Focus/Break/Cycles.
-    bindUiTime(box,'pomoFrom',nv=>{
-      c.times[sel.i]=nv;
-      pomoFrom=nv;
-      buildPomoLaps();
-      const ni=c.times.indexOf(nv);
-      sel.i=ni>=0?ni:0;
-      renderConfigure();
-    });
+  return cfgView;
+}
+function drawClock(){notifyConfigure();}   // legacy call sites (toggles, live clock) just republish
+function renderConfigure(){
+  normalizeSelection();
+  if(sel&&sel.k==='pomodoro')RAW.pomodoro.lap_mode_enabled=true;   // picking a pomodoro window switches lap mode on
+  refreshDirty();notifyConfigure();
+}
+function maybeScroll(){ if(window.innerWidth<=840 && sel){ const el=document.getElementById('insp'); if(el)el.scrollIntoView({behavior:'smooth',block:'center'}); } }
+
+const CFG_ALL_DAYS=[0,1,2,3,4,5,6];
+function cfgFind(k,gid){
+  const c=CATS.find(x=>x.k===k); if(!c)return {};
+  let gidx=-1,group=null;
+  if(gid!=null&&Array.isArray(c.groups)){gidx=c.groups.findIndex((g,n)=>String(g.id??n)===String(gid));group=gidx>=0?c.groups[gidx]:null;}
+  return {c,group,gidx};
+}
+const cfgOcc=(c,gidx)=>(c.gi?c.gi.map((g,i)=>g===gidx?i:-1).filter(i=>i>=0):[]);
+/* largest gap between existing cue times — where a new cue goes */
+function cfgGapTime(times){
+  const t=times.slice().sort((a,b)=>a-b);let at=9,gap=-1;
+  for(let i=0;i<t.length;i++){const nxt=(i===t.length-1)?t[0]+24:t[i+1];if(nxt-t[i]>gap){gap=nxt-t[i];at=(t[i]+nxt)/2%24;}}
+  return Math.round(at*12)/12;
+}
+
+/* --- selection --- */
+function cfgSelect(k,i){sel={k,i};renderConfigure();}
+
+/* --- timing --- */
+function cfgUpdateAbsoluteTime(c,nv){
+  forceAbsoluteMode(c); // keep internal mode in sync so abs.times is used on sync
+  if(c.durs){
+    const pairs=c.times.map((t,i)=>({t:i===sel.i?nv:t,d:c.durs[i],g:c.gi?c.gi[i]:null,l:c.labels?c.labels[i]:null}));
+    pairs.sort((a,b)=>a.t-b.t);
+    c.times=pairs.map(p=>p.t); c.durs=pairs.map(p=>p.d);
+    sel.i=c.times.indexOf(nv);
   } else {
-    bindUiTime(box,'start',nv=>updateAbsoluteTime(nv));
-  }
-  if(c.k==='water'){
-    const goalControl=box.querySelector('#hydrationGoal'),goalValue=box.querySelector('#hydrationGoalValue');
-    goalControl.addEventListener('input',()=>{goalValue.textContent=`${goalControl.value} ml`;});
-    goalControl.addEventListener('change',()=>{
-      const goal=clamp(Math.round(Number(goalControl.value)/100)*100,0,6000);
-      c.goal=goal; RAW.reminders.hydration.goal_ml=goal; goalControl.value=String(goal); goalValue.textContent=`${goal} ml`;
-      renderConfigure();
-      void runQuickCommand(`SET:GOAL ${goal}`,`Hydration goal set to ${goal} ml`).then(()=>{
-        if(deviceMac&&authenticatedUser?.uid)void saveDailyGoal(authenticatedUser.uid,deviceMac,goal).catch(()=>toast('Hydration goal was set on Aura, but could not be saved to the cloud'));
-      });
-    });
-  }
-  const durationControl=box.querySelector('#dur');
-  if(durationControl) durationControl.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-    if(c.durs){ c.durs[sel.i]=clamp(c.durs[sel.i]+(+b.dataset.d)*5,5,180); }
-    else { c.dur=clamp(c.dur+(+b.dataset.d)*5,1,180); }
-    renderConfigure();});
-  box.querySelector('#dup')?.addEventListener('click',()=>{
-    forceAbsoluteMode(c);
-    const nv=Math.min(23.75,h+Math.max(dd/60,.5));
-    if(c.k==='pomodoro'){
-      // New independent time window; device JSON still emits one full-session lap each
-      c.times.push(nv);
-      sortCat(c);
-      sel.i=c.times.indexOf(nv);
-      if(sel.i<0)sel.i=c.times.length-1;
-      buildPomoLaps();
-      renderConfigure();
-      return;
-    }
-    const duplicateLabel=c.labels?c.labels[sel.i]:null;
-    let duplicateGroup=c.gi?c.gi[sel.i]:null;
-    if(c.k==='custom' && c.groups && duplicateGroup!=null){
-      // Clone group so the new event is independent (own mode/date/days/label)
-      const src = c.groups[duplicateGroup];
-      const clone = {
-        name: (duplicateLabel || src.name || 'Custom'),
-        times: [nv],
-        days: [...(src.days || [0,1,2,3,4,5,6])],
-        enabled: true,
-        dur: src.dur != null ? src.dur : (c.dur || 1),
-        type: src.type === 'absolute' ? 'absolute' : 'recurring',
-        date: src.date || null,
-        id: nextCustomId(c.groups),
-        text_x: src.text_x, text_y: src.text_y, text_size: src.text_size,
-        text_color: src.text_color, text_align: src.text_align, text_width: src.text_width
-      };
-      c.groups.push(clone);
-      duplicateGroup = c.groups.length - 1;
-    }
-    c.times.push(nv);
-    if(c.durs)c.durs.push(dd);
-    if(c.labels)c.labels.push(duplicateLabel);
-    if(c.gi)c.gi.push(duplicateGroup);
-    const pairs=c.times.map((time,index)=>({
-      time,
-      duration:c.durs?c.durs[index]:null,
-      label:c.labels?c.labels[index]:null,
-      group:c.gi?c.gi[index]:null,
-    }));
+    const pairs=c.times.map((time,index)=>({time:index===sel.i?nv:time,label:c.labels?c.labels[index]:null,group:c.gi?c.gi[index]:null}));
     pairs.sort((a,b)=>a.time-b.time);
     c.times=pairs.map(pair=>pair.time);
-    if(c.durs)c.durs=pairs.map(pair=>pair.duration);
     if(c.labels)c.labels=pairs.map(pair=>pair.label);
     if(c.gi)c.gi=pairs.map(pair=>pair.group);
-    sel.i=c.times.indexOf(nv);renderConfigure();
-  });
-  box.querySelector('#del').addEventListener('click',()=>{
-    if(c.times.length>1){
-      forceAbsoluteMode(c);
-      removeOccurrence(c,sel.i);sel.i=Math.max(0,sel.i-1);
-      if(c.k==='pomodoro') buildPomoLaps();
+    sel.i=c.times.indexOf(nv);
+  }
+  renderConfigure();
+}
+/* i = index into the category's times (one cue) */
+function cfgSetCueTime(k,i,nv){
+  const c=CATS.find(x=>x.k===k);if(!c||!Number.isFinite(nv)||c.times[i]==null)return;
+  sel={k,i};
+  if(c.k==='pomodoro'){
+    // "To" is computed — only "From" drives recalculation (buildPomoLaps derives each window's end).
+    RAW.pomodoro.lap_mode_enabled=true;
+    c.times[i]=nv;pomoFrom=nv;buildPomoLaps();
+    const ni=c.times.indexOf(nv);sel={k,i:ni>=0?ni:0};renderConfigure();return;
+  }
+  cfgUpdateAbsoluteTime(c,nv);
+}
+function cfgSetDuration(k,gid,v){
+  const {c,group}=cfgFind(k,gid);if(!c)return;
+  v=Math.round(Number(v));if(!Number.isFinite(v))return;
+  if(c.k==='custom'&&group){group.dur=clamp(v,1,180);}   // each custom event has its own show_ms
+  else if(c.durs){c.durs=c.durs.map(()=>clamp(v,5,180));}
+  else{c.dur=clamp(v,1,180);}
+  renderConfigure();
+}
+/* Meditation / Healing: "From" + "To" → start time and session length */
+function cfgSetRange(k,i,start,mins){
+  const c=CATS.find(x=>x.k===k);if(!c||c.times[i]==null||!Number.isFinite(start))return;
+  sel={k,i};
+  c.dur=clamp(Math.round(mins),5,180);
+  cfgUpdateAbsoluteTime(c,start);
+}
+function cfgSetCueCount(k,gid,n){
+  const {c,gidx}=cfgFind(k,gid);if(!c)return;
+  n=Math.max(1,Math.round(Number(n)||1));
+  if(['water','eye','stretch','walk'].includes(c.k)){
+    forceAbsoluteMode(c);
+    const idx=c.times.map((_,i)=>i).sort((a,b)=>c.times[a]-c.times[b]);
+    c.times=idx.map(i=>c.times[i]);
+    while(c.times.length<n){c.times.push(cfgGapTime(c.times));c.times.sort((a,b)=>a-b);}
+    if(c.times.length>n)c.times=c.times.slice(0,n);
+    if(sel&&sel.k===c.k)sel={k:c.k,i:Math.min(sel.i,c.times.length-1)};
+  } else if((c.k==='meds'||c.k==='custom')&&gidx>=0){
+    let occ=cfgOcc(c,gidx);
+    while(occ.length<n){
+      const at=cfgGapTime(occ.map(i=>c.times[i]));
+      c.times.push(at);c.labels.push(c.groups[gidx].name||'');c.gi.push(gidx);sortCat(c);occ=cfgOcc(c,gidx);
     }
-    else{c.on=false;if(c.k==='pomodoro'){RAW.pomodoro.enabled=false;RAW.pomodoro.lap_mode_enabled=false;RAW.pomodoro.laps=[];}sel=null;}
-    renderConfigure();});
-  box.querySelector('#prev').addEventListener('click',()=>{sel.i=(sel.i-1+c.times.length)%c.times.length;renderConfigure();});
-  box.querySelector('#next').addEventListener('click',()=>{sel.i=(sel.i+1)%c.times.length;renderConfigure();});
-  box.querySelectorAll('[data-pp]').forEach(s=>s.addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;const f=s.dataset.pp,d=+b.dataset.d;
-    const lim={focus_min:[5,60],break_min:[5,30],cycles:[1,8]}[f];
-    RAW.pomodoro[f]=clamp(RAW.pomodoro[f]+d*(f==='cycles'?1:5),lim[0],lim[1]);
-    if(RAW.pomodoro.lap_mode_enabled)buildPomoLaps();
-    renderConfigure();
-  }));
+    while(occ.length>n){
+      const last=occ.slice().sort((a,b)=>c.times[b]-c.times[a])[0];   // trim the latest dose first
+      c.times.splice(last,1);if(c.labels)c.labels.splice(last,1);c.gi.splice(last,1);occ=cfgOcc(c,gidx);
+    }
+    sel={k:c.k,i:cfgOcc(c,gidx)[0]??0};
+  } else return;
+  renderConfigure();
 }
-function renderConfigure(){normalizeSelection();drawClock();drawLegend();drawInspect();refreshDirty();}
-function maybeScroll(){ if(window.innerWidth<=840 && sel){ document.getElementById('insp').scrollIntoView({behavior:'smooth',block:'center'}); } }
-
-/* drag arcs */
-const dial=document.getElementById('dial');let drag=null;
-dial.addEventListener('pointerdown',e=>{
-  const hnd=e.target.closest('.handle'), p=hnd||e.target.closest('.seg');
-  if(!p)return;
-  const c0=CATS.find(x=>x.k===p.dataset.k);
-  drag={k:p.dataset.k,i:+p.dataset.i, viaHandle:!!hnd, half:hnd?(occDur(c0,+p.dataset.i)/60)/2:0};
-  sel={k:drag.k,i:drag.i};
-  dial.setPointerCapture(e.pointerId);renderConfigure();
-});
-// invert the angle→hour mapping for whichever mode is active
-function hourFromXY(x,y){
-  if(HALF){ let a=Math.atan2(y,x); let h=(a+Math.PI/2)/Math.PI*24; return clamp(h,0,24-1e-6); }
-  let a=Math.atan2(y,x)+Math.PI/2; a=(a+2*Math.PI)%(2*Math.PI); return a/(2*Math.PI)*24;
-}
-dial.addEventListener('pointermove',e=>{if(!drag)return;const r=dial.getBoundingClientRect();
-  const x=(e.clientX-r.left)/r.width*VBW - CXc, y=(e.clientY-r.top)/r.height*VBH - CYc;
-  let h=hourFromXY(x,y)-drag.half; h=(Math.round(h*12)/12+24)%24;
-  if(HALF)h=clamp(h,0,24-1e-6);
-  const c=CATS.find(x=>x.k===drag.k);c.times[drag.i]=h;renderConfigure();});
-dial.addEventListener('pointerup',()=>{if(!drag)return;
-  const c=CATS.find(x=>x.k===drag.k),moved=c.times[drag.i],movedGroup=c.gi?c.gi[drag.i]:null;
+function cfgRemoveCue(k,i){
+  const c=CATS.find(x=>x.k===k);if(!c||c.times[i]==null||c.times.length<2)return;
   forceAbsoluteMode(c);
-  sortCat(c);   // keeps times/durs/labels/gi aligned (custom + medication rely on gi)
-  let ni=c.times.indexOf(moved);
-  if(movedGroup!=null){const match=c.gi.findIndex((g,idx)=>g===movedGroup&&c.times[idx]===moved);if(match>=0)ni=match;}
-  sel={k:drag.k,i:ni>=0?ni:0};
-  if(c.k==='pomodoro'){ pomoFrom=c.times[sel.i]; buildPomoLaps(); }   // one full-session lap per window
-  drag=null;renderConfigure();});
-dial.addEventListener('click',e=>{const p=e.target.closest('.seg');if(!p)return;sel={k:p.dataset.k,i:+p.dataset.i};renderConfigure();maybeScroll();});
+  const gi=c.gi?c.gi[i]:null;
+  c.times.splice(i,1);if(c.durs)c.durs.splice(i,1);if(c.labels)c.labels.splice(i,1);if(c.gi)c.gi.splice(i,1);
+  if(c.k==='pomodoro')buildPomoLaps();
+  const keep=(gi!=null&&c.gi)?cfgOcc(c,gi)[0]:null;
+  sel={k:c.k,i:Math.max(0,Math.min(keep!=null?keep:i-1,c.times.length-1))};
+  renderConfigure();
+}
+function cfgDuplicateWindow(k,i){          // Pomodoro / Healing: add another window right after this one
+  const c=CATS.find(x=>x.k===k);if(!c||c.times[i]==null)return;
+  sel={k,i};
+  const h=c.times[i],dd=occDur(c,i);
+  forceAbsoluteMode(c);
+  const nv=Math.min(23.75,h+Math.max(dd/60,.5));
+  c.times.push(nv);
+  if(c.k==='pomodoro'){
+    c.times.sort((a,b)=>a-b);buildPomoLaps();
+    const ni=c.times.indexOf(nv);sel={k,i:ni>=0?ni:c.times.length-1};renderConfigure();return;
+  }
+  c.times.sort((a,b)=>a-b);
+  sel={k,i:Math.max(0,c.times.indexOf(nv))};renderConfigure();
+}
+function cfgSetIntervalDays(v){
+  const c=CATS.find(x=>x.k==='clean');if(!c)return;
+  c.everyDays=Math.max(1,Math.round(Number(v)||1));renderConfigure();
+}
+function cfgSetWaterGoal(v){
+  const c=CATS.find(x=>x.k==='water');if(!c)return;
+  const goal=clamp(Math.round(Number(v)/100)*100,0,6000);
+  c.goal=goal;RAW.reminders.hydration.goal_ml=goal;
+  renderConfigure();
+  void runQuickCommand(`SET:GOAL ${goal}`,`Hydration goal set to ${goal} ml`).then(()=>{
+    if(deviceMac&&authenticatedUser?.uid)void saveDailyGoal(authenticatedUser.uid,deviceMac,goal).catch(()=>toast('Hydration goal was set on Aura, but could not be saved to the cloud'));
+  });
+}
+function cfgPomodoro(field,delta){
+  const lim={focus_min:[5,60],break_min:[5,30],cycles:[1,8]}[field];if(!lim)return;
+  RAW.pomodoro[field]=clamp(RAW.pomodoro[field]+delta*(field==='cycles'?1:5),lim[0],lim[1]);
+  if(RAW.pomodoro.lap_mode_enabled)buildPomoLaps();
+  renderConfigure();
+}
+
+/* --- label, dates, active days, custom mode --- */
+function cfgSetLabel(k,gid,v){
+  const {c,group,gidx}=cfgFind(k,gid);if(!c||!group||!c.labels)return;
+  const value=String(v).slice(0,25);
+  group.name=value;cfgOcc(c,gidx).forEach(i=>{c.labels[i]=value;});
+  renderConfigure();
+}
+function cfgSetMedDate(k,gid,field,value){
+  const {c,group}=cfgFind(k,gid);if(!c||c.k!=='meds'||!group)return;
+  if(field==='start')group.start=value;else group.end=value;renderConfigure();
+}
+function cfgToggleDay(k,gid,day){
+  const {c,group}=cfgFind(k,gid);if(!c)return;
+  const list=(c.k==='meds'||c.k==='custom')&&group?group.days:c.days;
+  if(!Array.isArray(list))return;
+  const index=list.indexOf(day);
+  if(index>=0)list.splice(index,1);else list.push(day);
+  list.sort((a,b)=>a-b);renderConfigure();
+}
+function cfgSetCustomDate(gid,value){
+  const {group}=cfgFind('custom',gid);if(!group)return;
+  group.date=value||localISODate();renderConfigure();
+}
+function cfgSetCustomMode(gid,nextMode){
+  const {c,group:customGroup,gidx}=cfgFind('custom',gid);if(!c||!customGroup)return;
+  const occ0=cfgOcc(c,gidx)[0];if(occ0==null)return;
+  sel={k:'custom',i:occ0};
+  const customMode=customType(customGroup);
+  const mode=nextMode==='absolute'?'absolute':'recurring';
+  if(mode===customMode)return;
+  const h=c.times[sel.i];
+  const currentGroupIndex=c.gi[sel.i];
+  const pairId=customGroup.modePairId||customGroup.id||`custom_pair_${currentGroupIndex}`;
+  customGroup.modePairId=pairId;
+  // 1) partner already linked by pair id
+  let targetGroupIndex=c.groups.findIndex((group,index)=>index!==currentGroupIndex&&group.modePairId===pairId&&customType(group)===mode);
+  // 2) config restored without pair ids: link by position among still-unpaired groups
+  if(targetGroupIndex<0){
+    const unpaired=type=>c.groups.map((group,index)=>({group,index})).filter(({group,index})=>customType(group)===type&&(index===currentGroupIndex||!group.modePairId||group.modePairId===pairId));
+    const position=unpaired(customMode).findIndex(entry=>entry.index===currentGroupIndex);
+    const match=position>=0?unpaired(mode)[position]:undefined;
+    if(match){targetGroupIndex=match.index;c.groups[targetGroupIndex].modePairId=pairId;}
+  }
+  // 3) no partner yet: create one seeded from this card's current time/days
+  if(targetGroupIndex<0){
+    c.groups.push({...customGroup,id:nextCustomId(c.groups),modePairId:pairId,type:mode,name:'',times:[h],days:[...(customGroup.days?.length?customGroup.days:CFG_ALL_DAYS)],date:customGroup.date||localISODate()});
+    targetGroupIndex=c.groups.length-1;
+  }
+  let targetOccurrenceIndex=c.gi.indexOf(targetGroupIndex);
+  if(targetOccurrenceIndex<0){
+    const target=c.groups[targetGroupIndex];
+    const t=Number.isFinite(target.times?.[0])?target.times[0]:h;
+    c.times.push(t);c.labels.push(target.name||'');c.gi.push(targetGroupIndex);
+    sortCat(c);targetOccurrenceIndex=c.gi.indexOf(targetGroupIndex);
+  }
+  sel={k:c.k,i:targetOccurrenceIndex};renderConfigure();
+}
+
+/* --- add / park / delete a habit --- */
+function cfgSetEnabled(k,gid,on){
+  const {c,group}=cfgFind(k,gid);if(!c)return;
+  if(group){group.enabled=!!on;if(on)c.on=true;if(!on&&sel&&sel.k===c.k&&c.gi&&c.groups[c.gi[sel.i]]===group)sel=null;}
+  else{
+    c.on=!!on;
+    if(c.k==='pomodoro'){RAW.pomodoro.enabled=c.on;if(c.on){RAW.pomodoro.lap_mode_enabled=true;buildPomoLaps();}}
+    if(!c.on&&sel&&sel.k===c.k)sel=null;
+  }
+  renderConfigure();
+}
+function cfgAddTemplate(k){
+  const c=CATS.find(x=>x.k===k);if(!c)return;
+  cfgSetEnabled(k,null,true);
+  if(c.times.length){sel={k,i:0};renderConfigure();}
+}
+function cfgAddMedicine(){
+  const c=CATS.find(x=>x.k==='meds');if(!c)return null;
+  let max=0;c.groups.forEach(g=>{const n=Number(String(g.id??'').match(/(\d+)$/)?.[1]);if(Number.isFinite(n)&&n>max)max=n;});
+  const id=`med_${String(max+1).padStart(3,'0')}`;
+  let start=9;while(c.times.some(u=>Math.abs(u-start)<0.4)&&start<22)start+=1;   // don't sit on top of an existing dose
+  c.groups.push({name:'Take Pill',times:[start],days:[...CFG_ALL_DAYS],start:localISODate(),end:`${new Date().getFullYear()}-12-31`,enabled:true,id,
+    text_x:120,text_y:135,text_size:1,text_color:65535,text_align:1,text_width:180});
+  const gidx=c.groups.length-1;
+  c.times.push(start);c.labels.push('Take Pill');c.gi.push(gidx);sortCat(c);
+  c.on=true;sel={k:'meds',i:Math.max(0,c.gi.indexOf(gidx))};renderConfigure();return id;
+}
+function cfgAddCustom(){
+  const c=CATS.find(x=>x.k==='custom');if(!c)return null;
+  const id=nextCustomId(c.groups);
+  const n=c.groups.filter(g=>/^Custom( \d+)?$/.test(g.name||'')).length;
+  const name=n?`Custom ${n+1}`:'Custom';
+  const at=Math.min(23.5,new Date().getHours()+1);
+  c.groups.push({name,times:[at],days:[...CFG_ALL_DAYS],enabled:true,dur:1,type:'recurring',date:null,id,
+    text_x:120,text_y:100,text_size:1,text_color:65535,text_align:1,text_width:180});
+  const gidx=c.groups.length-1;
+  c.times.push(at);c.labels.push(name);c.gi.push(gidx);sortCat(c);
+  c.on=true;sel={k:'custom',i:Math.max(0,c.gi.indexOf(gidx))};renderConfigure();return id;
+}
+function cfgDeleteGroup(k,gid){
+  const {c,group,gidx}=cfgFind(k,gid);if(!c||!group)return;
+  let occ=cfgOcc(c,gidx);
+  while(occ.length){removeOccurrence(c,occ[0]);const g=c.groups.indexOf(group);if(g<0)break;occ=cfgOcc(c,g);}
+  const left=c.groups.indexOf(group);if(left>=0)c.groups.splice(left,1);   // group with no occurrences
+  sel=null;renderConfigure();
+}
+
+const configureBridge={
+  subscribe:l=>{cfgListeners.add(l);return()=>{cfgListeners.delete(l);};},
+  getView:getConfigureView,
+  select:cfgSelect, scrollToEditor:maybeScroll, toast:m=>toast(m),
+  setCueTime:cfgSetCueTime, setCueCount:cfgSetCueCount, removeCue:cfgRemoveCue, duplicateWindow:cfgDuplicateWindow,
+  setDuration:cfgSetDuration, setRange:cfgSetRange, setIntervalDays:cfgSetIntervalDays, setWaterGoal:cfgSetWaterGoal, pomodoro:cfgPomodoro,
+  setLabel:cfgSetLabel, setMedDate:cfgSetMedDate, toggleDay:cfgToggleDay, setCustomMode:cfgSetCustomMode, setCustomDate:cfgSetCustomDate,
+  setEnabled:cfgSetEnabled, addTemplate:cfgAddTemplate, addMedicine:cfgAddMedicine, addCustom:cfgAddCustom, deleteGroup:cfgDeleteGroup,
+  setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded
+};
 
 /* ================= STATISTICS ================= */
 /* Only real data from the Statistics DB is shown. No simulated / dummy numbers.
@@ -1313,7 +1141,7 @@ async function syncStatistics(mode:'today'|'history'='today'){
   const status=document.getElementById('statsSyncStatus'), button=document.getElementById('statsSync') as HTMLButtonElement|null;
   if(!bleClient?.isConnected||!deviceMac){toast('Connect a FROST Aura device first');return;}
   if(button)button.disabled=true; if(status)status.textContent='Syncing…';
-  try{storedStatistics=await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid);if(status)status.textContent='Synced from device';if(page==='stats'){renderStats();}}
+  try{setStoredStatistics(await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid));if(status)status.textContent='Synced from device';}
   catch(error){if(status)status.textContent='Sync failed';toast(error instanceof Error?error.message:'Statistics sync failed');}
   finally{if(button)button.disabled=false;}
 }
@@ -1323,24 +1151,26 @@ async function syncStatistics(mode:'today'|'history'='today'){
 function toDeviceJSON({ includeUiMeta = false } = {}){
   /* Emit EXACT schema_ver 6 device JSON. No extra keys, no missing required fields. */
   const cat=k=>CATS.find(c=>c.k===k);
-  const ALL_DAYS=['sun','mon','tue','wed','thu','fri','sat'];
+  // Empty array means "every day, no restriction" — only list specific days when the
+  // person has actually narrowed it down to fewer than all 7.
   const daysOrAll=nums=>{
-    const d=dayNames(nums && nums.length ? nums : [0,1,2,3,4,5,6]);
-    return d.length ? d : ALL_DAYS.slice();
+    const arr=Array.isArray(nums)?nums:[];
+    if(!arr.length || arr.length>=7) return [];
+    return dayNames(arr);
   };
   const pad2=n=>String(n).padStart(2,'0');
   const HM=v=>pad2(Math.floor(v))+':'+pad2(Math.round(v%1*60));
   const timeObj=t=>({h:Math.floor(t), m:Math.round(t%1*60)});
 
   // ── window reminders (hydration / stretch / eye / walk) ──
-  // ALWAYS emit mode:"absolute" + abs.times from the live clock times.
-  // Frontend times (drag / time picker / duplicate / Aura add) must appear here.
-  const winNode=(c, fallbackIntervalMs)=>{
-    // Build abs.times from whatever the user has configured on the clock right now
-    let absTimes = [];
+  // Emit the live clock times plus this reminder's device-JSON validity window
+  // (start = today, end = its own streak length's Nth active day).
+  const winNode=(c, id)=>{
+    // Build times from whatever the user has configured on the clock right now
+    let times = [];
     if(c && Array.isArray(c.times) && c.times.length){
       const seen=new Set();
-      absTimes = c.times
+      times = c.times
         .map(t=>{
           const h=((Math.floor(Number(t))%24)+24)%24;
           let m=Math.round((Number(t)-Math.floor(Number(t)))*60);
@@ -1356,18 +1186,15 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
         })
         .sort((a,b)=>(a.h*60+a.m)-(b.h*60+b.m));
     }
+    const win=cfgStreakWindowFor(id, c && c.days);
     return {
-      enabled: !!(c && c.on),
-      mode: 'absolute',                                    // always absolute for these four
-      interval_ms: fallbackIntervalMs || 3600000,
-      display_ms: Math.round((c && c.dur != null ? c.dur : 1) * 60000),
-      require_ack: true,
-      start_hour: 0,
-      start_min:  0,
-      end_hour:   23,
-      end_min:    59,
+      enabled: cfgVisible(id) && !!(c && c.on),
+      start_date: win.start,
+      end_date: win.end,
       days: daysOrAll(c && c.days),
-      abs: { times: absTimes }                             // the times the user configured
+      abs: { times },                                      // the times the user configured
+      display_ms: Math.round((c && c.dur != null ? c.dur : 1) * 60000),
+      require_ack: true
     };
   };
 
@@ -1376,21 +1203,25 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const mh=(md && md.times && md.times[0] != null) ? md.times[0] : 7;
   const mdDur=(md && md.dur != null) ? md.dur : 30;
   const me=mh + mdDur/60;
+  const mdWin=cfgStreakWindowFor('meditation', md && md.days);
   const meditation={
-    enabled: !!(md && md.on),
-    sh: Math.floor(mh),
-    sm: Math.round(mh%1*60),
-    eh: Math.floor(me)%24,
-    em: Math.round(me%1*60),
-    display_sec: Math.round(mdDur*60),
-    require_ack: true,
-    days: daysOrAll(md && md.days)
+    enabled: cfgVisible('meditation') && !!(md && md.on),
+    start_date: mdWin.start,
+    end_date: mdWin.end,
+    days: daysOrAll(md && md.days),
+    times: [{
+      start: { h: Math.floor(mh), m: Math.round(mh%1*60) },
+      end:   { h: Math.floor(me)%24, m: Math.round(me%1*60) }
+    }],
+    display_ms: Math.round(mdDur * 60000),
+    require_ack: true
   };
 
   // ── medication: rebuild medicines array from live groups ──
   const meds=cat('meds');
   const medicines=[];
   (meds && meds.groups ? meds.groups : []).forEach((group, gi)=>{
+    if(!cfgVisible(`meds:${group.id ?? gi}`)) return;   // factory-default sample data, never added through this UI
     const doses=[];
     let label = group.name || 'Take Pill';
     if(meds.times && meds.gi){
@@ -1405,12 +1236,14 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       group.times.forEach(t=>doses.push(timeObj(t)));
     }
     if(!doses.length) return; // skip medicines with no doses
+    const medStart = group.start || localISODate();
+    const medWin = cfgStreakWindowFor(`meds:${group.id ?? gi}`, group.days, medStart);
     medicines.push({
       id: group.id || `med_${String(medicines.length+1).padStart(3,'0')}`,
       label,
       enabled: group.enabled !== false,
-      start: group.start || '2026-01-01',
-      end: group.end || '2026-12-31',
+      start: medStart,
+      end: medWin.end,                                     // worked out from the streak length + active days below
       days: daysOrAll(group.days),
       text_x: group.text_x != null ? group.text_x : 120,
       text_y: group.text_y != null ? group.text_y : 135,
@@ -1424,7 +1257,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const medication={
     enabled: !!(meds && meds.on),
     require_ack: true,
-    snooze_min: (meds && meds.snooze != null) ? meds.snooze : 15,
+    snooze_min: (meds && meds.snooze != null) ? meds.snooze : 10,
     display_ms: Math.round((meds && meds.dur != null ? meds.dur : 1) * 60000),
     medicines
   };
@@ -1433,24 +1266,30 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const cus=cat('custom');
   const events=[];
   (cus && cus.groups ? cus.groups : []).forEach((group, groupIndex)=>{
-    const occurrenceIndex = cus.gi ? cus.gi.indexOf(groupIndex) : groupIndex;
-    const rawTime = occurrenceIndex >= 0 && cus.times && cus.times[occurrenceIndex] != null
-      ? cus.times[occurrenceIndex]
-      : (group.times && group.times[0]);
-    const t = Number.isFinite(rawTime) ? rawTime : 0;
-    const label = occurrenceIndex >= 0 && cus.labels && cus.labels[occurrenceIndex] != null
-      ? cus.labels[occurrenceIndex]
+    if(!cfgVisible(`custom:${group.id ?? groupIndex}`)) return;   // factory-default sample data, never added through this UI
+    const occIndices = cus.gi ? cus.gi.map((g,i)=>g===groupIndex?i:-1).filter(i=>i>=0) : [];
+    const times = occIndices.length
+      ? occIndices.map(i=>timeObj(cus.times[i]))
+      : (group.times || []).map(t=>timeObj(t));
+    const label = (occIndices.length && cus.labels && cus.labels[occIndices[0]] != null)
+      ? cus.labels[occIndices[0]]
       : (group.name || 'Custom');
-    const showMs = Math.round((group.dur != null ? group.dur : (cus.dur || 1)) * 60000);
+    const displayMs = Math.round((group.dur != null ? group.dur : (cus.dur || 1)) * 60000);
     const isAbsolute = group.type === 'absolute';
+    const groupId = group.id || `custom_${String(events.length+1).padStart(3,'0')}`;
+    // Specific (one-off) date: a single-day window. Events (recurring): this habit's own streak length.
+    const win = isAbsolute
+      ? { start: group.date || localISODate(), end: group.date || localISODate() }
+      : cfgStreakWindowFor(`custom:${groupId}`, group.days);
     const ev={
-      id: group.id || `custom_${String(events.length+1).padStart(3,'0')}`,
+      id: groupId,
       label,
       enabled: group.enabled !== false,
-      h: Math.floor(t),
-      m: Math.round((t % 1) * 60),
-      show_ms: showMs,
-      type: isAbsolute ? 'absolute' : 'recurring',
+      start_date: win.start,
+      end_date: win.end,
+      display_ms: displayMs,
+      days: daysOrAll(group.days),
+      times,
       text_x: group.text_x != null ? group.text_x : 120,
       text_y: group.text_y != null ? group.text_y : 100,
       text_size: group.text_size != null ? group.text_size : 1,
@@ -1458,11 +1297,6 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       text_align: group.text_align != null ? group.text_align : 1,
       text_width: group.text_width != null ? group.text_width : 180
     };
-    if(isAbsolute){
-      ev.date = group.date || localISODate();
-    } else {
-      ev.days = daysOrAll(group.days);
-    }
     // UI-only Events↔Specific pairing key: cloud copy only, never sent to device
     if(includeUiMeta && group.modePairId) ev.mode_pair_id = group.modePairId;
     events.push(ev);
@@ -1470,17 +1304,20 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const custom={
     enabled: !!(cus && cus.on),
     require_ack: true,
+    display_ms: Math.round((cus && cus.dur != null ? cus.dur : 1) * 60000),
     events
   };
 
-  // ── bottle clean ──
+  // ── bottle clean (now nested inside reminders) ──
   const cl=cat('clean');
   const ch=(cl && cl.times && cl.times[0] != null) ? cl.times[0] : 18;
+  const clWin=cfgStreakWindowFor('clean', null);
   const bottle_clean={
-    enabled: !!(cl && cl.on),
+    enabled: cfgVisible('clean') && !!(cl && cl.on),
+    start_date: clWin.start,
+    end_date: clWin.end,
     interval_days: Math.max(1, Math.round(Number(cl && cl.everyDays != null ? cl.everyDays : 1))),
-    hour: Math.floor(ch),
-    minute: Math.round(ch%1*60),
+    time: { h: Math.floor(ch), m: Math.round(ch%1*60) },
     display_ms: Math.round((cl && cl.dur != null ? cl.dur : 1) * 60000),
     require_ack: true
   };
@@ -1490,12 +1327,14 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const he=cat('healing');
   const heDur = (he && he.dur != null) ? he.dur : 60;
   const heDays = daysOrAll(he && he.days);
-  const healing_schedules = (he && he.times && he.times.length)
+  // One entry per session, HH:MM strings — every session currently shares this
+  // habit's own Active Days (the UI doesn't yet offer a different day pattern per session).
+  const healing_schedules = (cfgVisible('healing') && he && he.times && he.times.length)
     ? he.times.map(t=>{
         const end = t + heDur/60;
-        return { enabled:true, start_time:HM(t), end_time:HM(end), days: heDays.slice() };
+        return { enabled: !!(he && he.on), start_time: HM(t), end_time: HM(end), days: heDays.slice() };
       })
-    : (Array.isArray(rawAudio.healing_schedules) ? rawAudio.healing_schedules : []);
+    : [];
   const audio={
     volume: rawAudio.volume != null ? rawAudio.volume : 15,
     pomodoro: {
@@ -1507,7 +1346,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       tracks: (rawAudio.meditation && Array.isArray(rawAudio.meditation.tracks)) ? rawAudio.meditation.tracks.slice() : [45]
     },
     healing: {
-      enabled: !!(he && he.on),
+      enabled: cfgVisible('healing') && !!(he && he.on),
       require_dock: !!(rawAudio.healing && rawAudio.healing.require_dock !== false),
       tracks: (rawAudio.healing && Array.isArray(rawAudio.healing.tracks)) ? rawAudio.healing.tracks.slice() : [45]
     },
@@ -1516,18 +1355,23 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
 
   // ── pomodoro ──
   const rawPomo = (RAW && RAW.pomodoro) ? RAW.pomodoro : {};
+  const pc = cat('pomodoro');
+  const pcWin = cfgStreakWindowFor('pomodoro', pc && pc.days);
   // One lap per time-window from buildPomoLaps(): each entry spans the full
-  // session (Start → Start + (Focus+Break)×Cycles). Never one entry per cycle.
-  const laps = Array.isArray(rawPomo.laps) ? rawPomo.laps : [];
+  // session (Start → Start + (Focus+Break)×Cycles). Focus/Break are global —
+  // every lap shares the same pair, only the start time and cycle count vary.
+  const laps = (Array.isArray(rawPomo.laps) ? rawPomo.laps : []).map(lap=>({
+    start: { h: lap.sh != null ? lap.sh : 9, m: lap.sm != null ? lap.sm : 0 },
+    cycles: lap.cycles != null ? lap.cycles : 1
+  }));
   const defaultCounter={ x:118, y:105, text_size:1, text_color:65535, text_align:1 };
   const pomodoro={
-    enabled: !!(rawPomo.enabled),
+    enabled: cfgVisible('pomodoro') && !!(rawPomo.enabled),
+    start_date: pcWin.start,
+    end_date: pcWin.end,
+    days: daysOrAll(pc && pc.days),
     focus_min: rawPomo.focus_min != null ? rawPomo.focus_min : 25,
     break_min: rawPomo.break_min != null ? rawPomo.break_min : 5,
-    cycles: rawPomo.cycles != null ? rawPomo.cycles : 4,
-    auto_start_break: rawPomo.auto_start_break !== false,
-    auto_start_focus: rawPomo.auto_start_focus !== false,
-    lap_mode_enabled: !!(rawPomo.lap_mode_enabled),
     laps,
     focus_counter: rawPomo.focus_counter ? {...defaultCounter, ...rawPomo.focus_counter} : {...defaultCounter},
     break_counter: rawPomo.break_counter ? {...defaultCounter, ...rawPomo.break_counter} : {...defaultCounter}
@@ -1539,16 +1383,16 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       device: 'FROST'
     },
     reminders: {
-      hydration: winNode(cat('water'), 3600000),
-      stretch:   winNode(cat('stretch'), 3600000),
-      eye:       winNode(cat('eye'), 2700000),
-      walk:      winNode(cat('walk'), 7200000),
+      hydration: winNode(cat('water'), 'water'),
+      stretch:   winNode(cat('stretch'), 'stretch'),
+      eye:       winNode(cat('eye'), 'eye'),
+      walk:      winNode(cat('walk'), 'walk'),
+      bottle_clean,
       meditation,
       medication,
       custom
     },
     audio,
-    bottle_clean,
     pomodoro
   };
 }
@@ -1740,6 +1584,11 @@ window.addEventListener('frost-quick-action',event=>{
     if(password===null||ssid.includes('|')||password.includes('|')){toast('Wi-Fi values cannot contain |');return;}
     runQuickCommand(`WIFI:SET:${ssid}|${password}`,'Wi-Fi credentials saved');
   }
+  if(action.type==='bottle-control'){
+    const command = action.enabled ? 'BOTTLE:LEARN_START' : 'BOTTLE:LEARN_CANCEL';
+    const message = action.enabled ? 'Water consumption learning enabled' : 'Water consumption learning disabled';
+    runQuickCommand(command, message);
+  }
   if(action.type==='dnd'){
     if(!bleClient?.isConnected){
       toast('Connect a FROST Aura device first');
@@ -1787,7 +1636,7 @@ function show(p){
     el.hidden=!active;
     el.style.display = active ? '' : 'none';
   });
-  document.getElementById('gridtog').classList.toggle('hide',p!=='configure');
+  document.getElementById('gridtog').classList.add('hide');   // the My day dial has no grid
   if(p==='configure')renderConfigure();
   if(p==='stats'){renderStats();}
   if(p==='device')renderDevice();
@@ -1881,7 +1730,7 @@ document.getElementById('signout').addEventListener('click',()=>{
 });
 applyUser(authenticatedUser);
 statisticsUnsubscribe();
-statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{storedStatistics=records;if(page==='stats')renderStats();},undefined,authenticatedUser?.uid);
+statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
 
 setChip();
 /* ===================== AURA — AI schedule assistant ===================== */
@@ -2031,26 +1880,10 @@ function tickLiveClock(){
   // Only refresh when the displayed minute changes
   if(prevMin===curMin) return;
   if(page!=='configure') return;
-  const live=document.getElementById('liveClock');
-  if(live){
-    const tspan=live.querySelector('tspan')||live;
-    tspan.textContent=fmt(NOW_H);
-  }
-  // Reposition the now-dot without a full redraw when possible
-  const dialEl=document.getElementById('dial');
-  const nowDot=dialEl&&dialEl.querySelector('.nowdot');
-  if(nowDot){
-    const active=CATS.filter(c=>c.on);
-    computeGeom(active.length);
-    const rNow=ringRadius(Math.max(0,active.length-1))-BAND/2-6;
-    const [nx,ny]=pt(NOW_H,rNow);
-    nowDot.setAttribute('cx',String(nx));
-    nowDot.setAttribute('cy',String(ny));
-  } else {
-    drawClock();
-  }
+  notifyConfigure();   // the React dial redraws the centre clock and the now-dot
 }
 // Poll frequently enough to catch the minute rollover quickly
 setInterval(tickLiveClock,15000);
 
+return configureBridge;
 }

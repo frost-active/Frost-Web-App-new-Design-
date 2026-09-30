@@ -1,0 +1,210 @@
+/* ============================================================================
+   Configure tab — visual design ported from the FROST Aura "My day" prototype.
+   Every rule is scoped to #page-configure and every class is prefixed "cfg-"
+   so nothing here can leak into the Statistics / Device / Settings tabs.
+   Section 1 is the My day stylesheet, unchanged apart from the prefixing.
+   Section 2 adds the few pieces that only exist on Configure.
+   ============================================================================ */
+
+/* ---- 1. My day design (prefixed + scoped) ---- */
+#page-configure .cfg-card{background:var(--panel);border-radius:16px;padding:16px}
+#page-configure .cfg-card h2{font:700 11px Syne;letter-spacing:.11em;text-transform:uppercase;margin-bottom:12px}
+#page-configure .cfg-card h2 .cfg-r{float:right;font:500 11px "DM Sans";letter-spacing:0;text-transform:none;color:var(--muted)}
+#page-configure .cfg-btn{border:1px solid var(--faint);background:none;color:var(--ink);border-radius:9px;padding:9px 13px;font-size:12.5px}
+#page-configure .cfg-btn:hover{border-color:var(--sky)}
+#page-configure .cfg-btn.cfg-pri{background:var(--sky);border-color:var(--sky);color:var(--navy);font-weight:700}
+#page-configure .cfg-btn.cfg-pri:disabled,#page-configure .cfg-btn:disabled{background:rgba(230,241,248,.08);border-color:transparent;color:var(--muted);cursor:default}
+#page-configure .cfg-btn.cfg-sm{padding:6px 10px;font-size:11.5px}
+#page-configure .cfg-btn.cfg-warn:hover{border-color:#E4674F;color:#E4674F}
+#page-configure .cfg-btn.cfg-grow{flex:1}
+#page-configure .cfg-rowbtns{display:flex;gap:6px;margin-top:13px;flex-wrap:wrap}
+#page-configure .cfg-chips{display:flex;flex-wrap:wrap;gap:6px}
+#page-configure .cfg-chips.cfg-cues{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;flex:1;min-width:0;width:100%}
+#page-configure .cfg-chips.cfg-cues .cfg-chipb.cfg-x{width:100%;box-sizing:border-box;justify-content:space-between;padding:8px 8px 8px 12px;min-height:40px;gap:6px}
+@media(max-width:420px){
+  #page-configure .cfg-chips.cfg-cues{grid-template-columns:1fr}
+}
+#page-configure .cfg-chipb{border:1px solid var(--faint);background:none;color:var(--muted);border-radius:99px;padding:7px 12px;font-size:12px}
+#page-configure .cfg-chipb:hover{color:var(--ink)}
+#page-configure .cfg-chipb[aria-pressed=true]{border-color:var(--mint);background:var(--panel2);color:var(--ink)}
+#page-configure .cfg-chipb:disabled{opacity:.35;cursor:default;pointer-events:none}
+#page-configure .cfg-chipb.cfg-added{border-color:var(--mint);color:var(--ink);opacity:.65}
+#page-configure .cfg-chipb.cfg-x{padding:7px 8px 7px 12px;display:flex;align-items:center;gap:8px;color:var(--ink);border-color:var(--c)}
+#page-configure .cfg-chipb.cfg-x b{font:700 12px Syne;flex:none}
+#page-configure .cfg-chipb.cfg-x input.cfg-ctimein{width:44px;flex:none;background:none;border:0;padding:2px 0;margin:-2px 0;font:700 13px Syne;color:var(--ink);text-align:center;-moz-appearance:textfield}
+#page-configure .cfg-chipb.cfg-x input.cfg-ctimein:focus{outline:1px solid var(--sky);border-radius:4px}
+#page-configure .cfg-chipb.cfg-x select.cfg-ctimemer{flex:none;min-width:48px;width:48px;max-width:54px;background:var(--panel2);border:1px solid var(--faint);border-radius:6px;padding:3px 2px;margin:0;font:700 11px "DM Sans";color:var(--ink);color-scheme:dark;cursor:pointer;appearance:auto}
+#page-configure .cfg-chipb.cfg-x select.cfg-ctimemer:focus{outline:1px solid var(--sky);border-color:var(--sky)}
+#page-configure .cfg-chipb.cfg-x select.cfg-ctimemer option{background:#0B2C45;color:#E6F1F8;font-weight:600}
+#page-configure .cfg-chipb.cfg-x .cfg-rm{text-decoration:none;color:#E4674F;background:rgba(228,103,79,.18);font-size:18px;line-height:1;cursor:pointer;width:26px;height:26px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:50%;margin-left:auto;font-weight:600;border:0;padding:0}
+#page-configure .cfg-chipb.cfg-x .cfg-rm:hover{color:#fff;background:#E4674F}
+#page-configure .cfg-fieldrow{display:flex;align-items:center;gap:10px;margin-bottom:11px;font-size:12px;color:var(--muted)}
+#page-configure .cfg-step{display:flex;align-items:center;gap:8px}
+#page-configure .cfg-step button{width:30px;height:30px;border-radius:9px;border:1px solid var(--faint);background:none;color:var(--ink);font-size:16px;line-height:1}
+#page-configure .cfg-step b{font:800 16px Syne;min-width:30px;text-align:center;color:var(--ink)}
+#page-configure .cfg-medform{display:flex;flex-direction:column;gap:20px;margin-bottom:20px}
+#page-configure .cfg-msec{display:flex;flex-direction:column}
+#page-configure .cfg-mlabel{display:flex;align-items:baseline;gap:8px;font:600 10.5px "DM Sans";letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+#page-configure .cfg-mlabel .cfg-cnt{margin-left:auto;font-weight:600}
+#page-configure .cfg-audrow{display:flex;gap:8px;flex-wrap:wrap}
+#page-configure .cfg-audrow .cfg-btn{flex:1;min-width:120px}
+#page-configure .cfg-audcur{display:flex;align-items:center;gap:10px;margin-top:10px;padding:10px 12px;background:var(--panel2);border-radius:12px;border:1px solid var(--faint);font-size:12.5px}
+#page-configure .cfg-audcur .cfg-an{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-configure .cfg-audcur .cfg-am{font-size:11px;color:var(--muted);margin-top:2px}
+#page-configure .cfg-audcur .cfg-btn{flex:none}
+#page-configure .cfg-libbox{margin-top:12px;border:1px solid var(--faint);border-radius:14px;overflow:hidden;background:var(--panel2)}
+#page-configure .cfg-libbox .cfg-libhd{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--faint);font:600 11px "DM Sans";letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+#page-configure .cfg-libbox .cfg-liblist{max-height:200px;overflow:auto}
+#page-configure .cfg-libitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--faint);width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left;color:var(--ink);cursor:pointer}
+#page-configure .cfg-libitem:last-child{border-bottom:0}
+#page-configure .cfg-libitem:hover{background:rgba(41,171,226,.08)}
+#page-configure .cfg-libitem[aria-pressed=true]{background:rgba(93,202,165,.12)}
+#page-configure .cfg-libitem .cfg-li-ico{width:32px;height:32px;border-radius:8px;background:var(--panel);display:grid;place-items:center;font-size:14px;flex:none;color:var(--mint)}
+#page-configure .cfg-libitem .cfg-li-meta{flex:1;min-width:0}
+#page-configure .cfg-libitem .cfg-li-meta b{display:block;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-configure .cfg-libitem .cfg-li-meta small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+#page-configure .cfg-libitem .cfg-li-del{flex:none;width:28px;height:28px;border-radius:8px;border:0;background:none;color:var(--muted);font-size:16px;cursor:pointer;display:grid;place-items:center}
+#page-configure .cfg-libitem .cfg-li-del:hover{color:#E4674F;background:rgba(228,103,79,.14)}
+#page-configure .cfg-libempty{padding:16px 12px;font-size:12.5px;color:var(--muted);line-height:1.5;text-align:center}
+#page-configure .cfg-minput{width:100%;background:var(--panel2);border:1px solid var(--faint);border-radius:14px;padding:14px 16px;font:600 16px "DM Sans";color:var(--ink)}
+#page-configure .cfg-minput::placeholder{color:rgba(230,241,248,.32);font-weight:400}
+#page-configure .cfg-minput:focus{outline:none;border-color:var(--sky)}
+#page-configure input.cfg-minput[type=date],#page-configure input.cfg-minput[type=time]{color-scheme:dark;font:500 15px "DM Sans"}
+#page-configure select.cfg-minput{color-scheme:dark;font:600 15px "DM Sans";appearance:auto}
+#page-configure .cfg-mhelp{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+#page-configure .cfg-mgrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){
+  #page-configure .cfg-mgrid2{grid-template-columns:1fr}
+}
+#page-configure .cfg-daytoggle{display:flex;gap:6px;flex-wrap:wrap}
+#page-configure .cfg-dchip{flex:1;min-width:40px;text-align:center;padding:11px 4px;border-radius:12px;border:1px solid var(--faint);background:none;color:var(--muted);font:600 12px "DM Sans"}
+#page-configure .cfg-dchip[aria-pressed=true]{background:#E4674F;border-color:transparent;color:#fff}
+#page-configure .cfg-mtimerow{display:flex;gap:7px}
+#page-configure .cfg-mtimerow input.cfg-minput{flex:1;min-width:0;padding:12px 10px;font-size:15px}
+#page-configure .cfg-mtimerow select.cfg-minput{flex:0 0 66px;padding:12px 4px 12px 8px;font-size:13px}
+#page-configure .cfg-minput:disabled{opacity:.55;color:var(--muted)}
+#page-configure .cfg-mslider{display:flex;align-items:center;gap:12px;margin-top:2px}
+#page-configure .cfg-mslider input[type=range]{flex:1;min-width:0;-webkit-appearance:none;appearance:none;height:6px;background:var(--faint);border-radius:99px;outline:none;cursor:pointer}
+#page-configure .cfg-mslider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--mint);cursor:pointer;border:2px solid var(--panel);box-shadow:0 0 0 1.5px rgba(93,202,165,.55)}
+#page-configure .cfg-mslider input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--mint);cursor:pointer;border:2px solid var(--panel);box-shadow:0 0 0 1.5px rgba(93,202,165,.55)}
+#page-configure .cfg-mslider input[type=range]:focus-visible{outline:none}
+#page-configure .cfg-mslider input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(41,171,226,.45)}
+#page-configure .cfg-mslider .cfg-valbox{width:52px;flex:none;background:var(--panel2);border:1px solid var(--faint);border-radius:10px;padding:7px 4px;font:700 14px Syne;color:var(--ink);text-align:center;-moz-appearance:textfield}
+#page-configure .cfg-mslider .cfg-valbox::-webkit-outer-spin-button,#page-configure .cfg-mslider .cfg-valbox::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+#page-configure .cfg-mslider .cfg-valbox:focus{outline:1px solid var(--sky);border-color:var(--sky)}
+#page-configure .cfg-mslider .cfg-valunit{font:600 11px "DM Sans";color:var(--muted);flex:none;min-width:28px}
+#page-configure .cfg-mgrid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+#page-configure .cfg-stepcard{background:var(--panel2);border:1px solid var(--faint);border-radius:12px;padding:10px 3px;display:flex;flex-direction:column;align-items:center;gap:7px;min-width:0;box-sizing:border-box;overflow:hidden}
+#page-configure .cfg-stepcard .cfg-mlabel{margin:0;justify-content:center;font-size:9px;letter-spacing:.05em;white-space:nowrap}
+#page-configure .cfg-stepcard .cfg-step{gap:3px}
+#page-configure .cfg-stepcard .cfg-step button{width:23px;height:23px;border-radius:7px;font-size:13px;flex:none;padding:0}
+#page-configure .cfg-stepcard .cfg-step b{font-size:13px;min-width:19px}
+#page-configure .cfg-pomwin{display:flex;flex-direction:column;gap:14px;border-top:1px solid var(--faint);padding-top:18px;margin-top:18px}
+#page-configure .cfg-pomwin:first-child{border-top:0;padding-top:0;margin-top:0}
+#page-configure .cfg-pompager{align-items:center;justify-content:space-between;gap:6px}
+#page-configure .cfg-pompager .cfg-pcount{flex:1;min-width:0;text-align:center;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#page-configure .cfg-pompager .cfg-btn{flex:none}
+#page-configure .cfg-pompager .cfg-btn:disabled{opacity:.35}
+#page-configure .cfg-daygrid{display:grid;grid-template-columns:1fr 400px;gap:16px;align-items:start}
+@media(max-width:1000px){
+  #page-configure .cfg-daygrid{grid-template-columns:1fr}
+}
+#page-configure .cfg-daycol{display:flex;flex-direction:column;gap:14px}
+#page-configure .cfg-dialcard{background:var(--panel);border-radius:20px;padding:10px 10px 4px;position:relative}
+#page-configure svg.cfg-dial{display:block;width:100%;height:auto;touch-action:pan-y}
+#page-configure .cfg-rimseg{fill:none;stroke:rgba(230,241,248,.09);stroke-width:9;stroke-linecap:round}
+#page-configure .cfg-rimseg.cfg-f{stroke:var(--c)}
+#page-configure .cfg-rimseg.cfg-s{stroke:var(--sky);opacity:.6}
+#page-configure .cfg-rimseg.cfg-t{stroke:var(--c);opacity:.3;animation:cfg-segpulse 2.3s ease-in-out infinite}
+@keyframes cfg-segpulse{50%{opacity:.85}}
+@media(prefers-reduced-motion:reduce){
+  #page-configure .cfg-rimseg.cfg-t{animation:none;opacity:.55}
+}
+#page-configure .cfg-tickline{stroke:rgba(230,241,248,.16)}
+#page-configure .cfg-ticknum{fill:rgba(230,241,248,.28);font:500 10.5px "DM Sans";text-anchor:middle}
+#page-configure .cfg-ticknum.cfg-major{fill:rgba(230,241,248,.5);font:700 13px "DM Sans"}
+#page-configure .cfg-quiet{fill:rgba(212,162,76,.07)}
+#page-configure .cfg-quietline{stroke:rgba(212,162,76,.3);stroke-width:1.5;stroke-dasharray:3 5}
+#page-configure .cfg-cattrack{fill:none;stroke:rgba(230,241,248,.05)}
+#page-configure .cfg-seg{fill:none;stroke-linecap:round;cursor:grab}
+#page-configure .cfg-seg.cfg-dim{opacity:.34}
+#page-configure .cfg-seg.cfg-hit{cursor:pointer}
+#page-configure .cfg-nowdot{fill:#fff;stroke:rgba(4,24,40,.55);stroke-width:1.5}
+#page-configure .cfg-ctrName{fill:var(--ink);font:700 15px Syne;text-anchor:middle}
+#page-configure .cfg-ctrBig{fill:var(--ink);font:800 46px Syne;text-anchor:middle}
+#page-configure .cfg-ctrSub{fill:var(--muted);font:500 10px "DM Sans";letter-spacing:.12em;text-anchor:middle}
+#page-configure .cfg-ctrStreak{fill:var(--sand);font:800 15px Syne;text-anchor:middle}
+#page-configure .cfg-dosetrk{fill:none;stroke:rgba(230,241,248,.1);stroke-width:7}
+#page-configure .cfg-dosearc{fill:none;stroke:var(--c);stroke-width:7;stroke-linecap:round}
+#page-configure .cfg-dialhint{font-size:11px;color:var(--muted);text-align:center;padding:4px 8px 10px;line-height:1.5}
+#page-configure .cfg-dialhint b{color:var(--ink);font-weight:600}
+#page-configure .cfg-rail{display:flex;flex-direction:column;gap:2px}
+#page-configure .cfg-hrow{display:flex;align-items:center;gap:11px;padding:10px;border-radius:12px;background:none;border:1px solid transparent;text-align:left;width:100%;color:var(--ink)}
+#page-configure .cfg-hrow:hover{background:var(--panel2)}
+#page-configure .cfg-hrow[aria-pressed=true]{border-color:var(--c);background:var(--panel2)}
+#page-configure .cfg-hrow .cfg-pill{width:22px;height:8px;border-radius:5px;background:var(--c);flex:none}
+#page-configure .cfg-hrow .cfg-mini{width:34px;height:34px;flex:none;position:relative}
+#page-configure .cfg-hrow .cfg-mini svg{display:block}
+#page-configure .cfg-mini .cfg-mt{fill:none;stroke:rgba(230,241,248,.12);stroke-width:4}
+#page-configure .cfg-mini .cfg-mv{fill:none;stroke:var(--c);stroke-width:4;stroke-linecap:round}
+#page-configure .cfg-hrow .cfg-nm{flex:1;min-width:0;font-size:13.5px;font-weight:600}
+#page-configure .cfg-hrow .cfg-nm small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:3px}
+#page-configure .cfg-hrow .cfg-stk{font:800 15px Syne;color:var(--sand);white-space:nowrap}
+#page-configure .cfg-hrow .cfg-stk small{display:block;font:500 9px "DM Sans";letter-spacing:.1em;color:var(--muted);text-align:right;margin-top:2px}
+#page-configure .cfg-hrow.cfg-parked{opacity:.5}
+#page-configure .cfg-empty{font-size:12.5px;color:var(--muted);line-height:1.6}
+#page-configure .cfg-chal{border:1px solid var(--faint);border-radius:13px;padding:14px;margin-bottom:10px}
+#page-configure .cfg-chal:last-child{margin-bottom:0}
+#page-configure .cfg-chal .cfg-ch{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+#page-configure .cfg-chal .cfg-ch b{font:700 13px Syne;flex:1;line-height:1.3}
+#page-configure .cfg-chal .cfg-ch b small{display:block;font:400 11px "DM Sans";color:var(--muted);margin-top:3px}
+#page-configure .cfg-cdays{position:relative;width:44px;height:44px;flex:none}
+#page-configure .cfg-cdays svg{display:block}
+#page-configure .cfg-cdays .cfg-bg{fill:none;stroke:rgba(230,241,248,.1);stroke-width:4}
+#page-configure .cfg-cdays .cfg-fg{fill:none;stroke:var(--c);stroke-width:4;stroke-linecap:round}
+#page-configure .cfg-cdays span{position:absolute;inset:0;display:grid;place-items:center;font:800 14px Syne}
+#page-configure .cfg-racers{display:flex;gap:12px;flex-wrap:wrap}
+#page-configure .cfg-racer{width:62px;text-align:center}
+#page-configure .cfg-racer .cfg-g{position:relative;width:62px;height:62px}
+#page-configure .cfg-racer .cfg-g svg{display:block}
+#page-configure .cfg-racer .cfg-gt{fill:none;stroke:rgba(230,241,248,.08);stroke-width:5}
+#page-configure .cfg-racer .cfg-gv{fill:none;stroke:var(--c);stroke-width:5;stroke-linecap:round;opacity:.5}
+#page-configure .cfg-racer.cfg-me .cfg-gv{opacity:1}
+#page-configure .cfg-racer.cfg-lead .cfg-gv{stroke:var(--sand);opacity:.95}
+#page-configure .cfg-racer .cfg-in{position:absolute;inset:0;display:grid;place-items:center;font:800 15px Syne;color:var(--muted)}
+#page-configure .cfg-racer.cfg-me .cfg-in{color:var(--ink)}
+#page-configure .cfg-racer p{font-size:11px;color:var(--muted);margin-top:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-configure .cfg-racer.cfg-me p{color:var(--ink);font-weight:600}
+#page-configure .cfg-racer p b{display:block;font:700 11.5px Syne;color:var(--ink)}
+#page-configure .cfg-newchal{border:1px solid rgba(41,171,226,.35);border-radius:13px;padding:13px;margin-bottom:10px}
+@media(max-width:680px){
+  #page-configure .cfg-btn{padding:11px 14px}
+  #page-configure .cfg-btn.cfg-sm{padding:8px 11px;font-size:12px}
+  #page-configure .cfg-fieldrow .cfg-lbl{width:64px}
+}
+
+/* ---- 2. Configure-only additions ---- */
+/* page layout: dial + challenges | habits + editor */
+#page-configure .cfg-daygrid{display:grid;grid-template-columns:1fr 400px;gap:16px;align-items:start}
+@media(max-width:1000px){#page-configure .cfg-daygrid{grid-template-columns:1fr}}
+#page-configure .cfg-daycol{display:flex;flex-direction:column;gap:14px;min-width:0}
+#page-configure .cfg-dialcard.clockcard{background:var(--panel);border-radius:20px;padding:10px 10px 4px}
+@media(max-width:680px){#page-configure .cfg-dialcard.clockcard{padding:10px 8px 4px;border-radius:20px}}
+#page-configure .cfg-dialcard .cfg-dial{max-width:100%}
+/* the dial is a read-only face now: tap to pick, the round centre logs */
+#page-configure .cfg-seg{cursor:pointer}
+/* shared-input tweaks */
+#page-configure .cfg-chipb.cfg-x{background:none}
+#page-configure .cfg-ctimein[aria-invalid=true]{outline:1px solid #E4674F;border-radius:4px}
+#page-configure .cfg-minput[aria-invalid=true]{border-color:#E4674F}
+#page-configure .cfg-mhelp b{color:var(--ink);font-weight:600}
+#page-configure .cfg-card h2 .cfg-r{max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-configure .cfg-step button:hover{border-color:var(--sky)}
+#page-configure .cfg-hrow{cursor:pointer;font-family:inherit}
+#page-configure .cfg-sect{margin-top:4px}
+@media(max-width:680px){
+  #page-configure .cfg-step button{width:40px;height:40px;font-size:18px}
+  #page-configure .cfg-stepcard .cfg-step button{width:26px;height:32px;font-size:15px}
+  #page-configure .cfg-minput,#page-configure .cfg-chipb.cfg-x input.cfg-ctimein{font-size:16px}
+  #page-configure .cfg-hrow{padding:12px 10px}
+}

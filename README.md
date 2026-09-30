@@ -26,6 +26,7 @@ Firebase Authentication is configured in `src/firebase.ts`. Enable **Email/Passw
 
 - `src/config/defaultConfig.ts` contains the default device schema sent to the controller.
 - `src/reminders/` contains one TSX module per reminder category plus the shared registry.
+- `src/pages/ConfigurePage.tsx` and `src/components/configure/` are the Configure tab UI: the 24-hour dial (`ConfigureDial.tsx`), the reminder list (`ReminderRail.tsx`), the timing editor (`TimingEditor.tsx`) and shared form controls (`fields.tsx`). Their styles are in `configure.css`, scoped to `#page-configure`. They render from `configureBridge`, which `src/legacy.ts` returns from `mountFrost()`; the schedule state and every edit still live in `legacy.ts`, so device sync, Aura and the JSON export are unchanged.
 - `src/HomeScreen.tsx` is the authenticated dashboard host; the existing clock renderer remains behaviorally unchanged in `src/legacy.ts` and consumes the extracted config/registry.
 
 Web Bluetooth is available in Chrome or Edge on `localhost` or HTTPS. The browser may ask for the firmware's custom service UUID during discovery; the Python protocol only specifies the characteristic UUID, so the service must be exposed by the device firmware for browser access.
