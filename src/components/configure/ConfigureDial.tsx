@@ -69,7 +69,7 @@ export default function ConfigureDial({ snap, store }: Props) {
         };
         return (
           <g key={h.id}>
-            <circle cx={CX} cy={CY} r={r} className={cn('cattrack')} strokeWidth={band + 2} onPointerDown={() => tap(0)} />
+            <circle cx={CX} cy={CY} r={r} className={`${cn('cattrack')}${on ? ` ${cn('selectedtrack')}` : ''}`} style={cssVars({ '--c': h.color })} strokeWidth={band + 2} onPointerDown={() => tap(0)} />
             {h.times.map((t, i) => {
               const sweep = Math.max(0.08, h.dur / 60) / 12, f0 = (t % 12) / 12;
               const d = arcF(r, f0, f0 + sweep);

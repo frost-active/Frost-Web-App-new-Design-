@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
+import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFirmwareInfo } from './DeviceFirmwareSync';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
 import { saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
@@ -63,6 +64,17 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <button class="gridtog" id="fmttog" aria-pressed="false">12-hour<span class="sw"></span></button>
     <button class="gridtog on" id="gridtog" aria-pressed="true">Grid<span class="sw"></span></button>
     <div class="chip" id="chip"><span class="dot"></span><span id="chipTxt">Not connected</span></div>
+    <div class="firmware-notifications">
+      <button class="notification-bell" id="firmwareBell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="firmwareNotice" title="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+        <span class="notification-dot" id="firmwareDot" hidden></span>
+      </button>
+      <div class="firmware-notice" id="firmwareNotice" role="status" hidden>
+        <h2 id="firmwareNoticeTitle">Firmware status</h2>
+        <p id="firmwareNoticeMessage">Connect your FROST Aura to check its firmware.</p>
+        <p class="firmware-notice-help" id="firmwareNoticeHelp"></p>
+      </div>
+    </div>
     <div class="user" id="user">
       <span class="uav" id="uav">R</span>
       <span class="uinfo"><span class="uname" id="uname">Raju</span></span>
@@ -151,7 +163,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <p class="psub">Your FROST Aura connection, firmware, and the schedule it's currently running.</p>
     <div style="display:flex;flex-direction:column;gap:14px;max-width:680px">
       <div class="card"><h2>Binding</h2><div id="device-binding-root"></div>
-        <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small></div>
+        <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small><small>Firmware Version: <span id="dFirmwareVersion">Not available</span><span class="firmware-update-label" id="firmwareUpdateLabel" role="status" hidden>Firmware Update available</span></small><small>Web App Version: 3.0</small></div>
           <div class="batt"><i style="--p:82%"></i></div>
           <span class="pill" id="dState">Offline</span>
           <button class="btn" id="dConnect">Connect</button></div>
@@ -412,6 +424,10 @@ function buildPomoLaps(){
 let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false;
 let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
+let firmwareVersion:string|null=null;
+let latestFirmwareVersion:string|null=null;
+let firmwareUpdateAvailable=false;
+let firmwareInfoUnsubscribe:()=>void=()=>undefined;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
 let storedStatistics:DeviceStatistics[]=[];
@@ -425,6 +441,38 @@ function setStoredStatistics(records:DeviceStatistics[]){
 }
 let statisticsUnsubscribe:()=>void=()=>undefined;
 let device=snapshot();   // what Aura holds
+
+function renderFirmwareStatus(info?:DeviceFirmwareInfo){
+  if(info){
+    firmwareVersion=info.firmware_version||null;
+    latestFirmwareVersion=info.latest_firmware_version||null;
+    firmwareUpdateAvailable=Boolean(info.firmware_update_available);
+  }
+  const version=document.getElementById('dFirmwareVersion');
+  if(version)version.textContent=firmwareVersion||'Not available';
+  const dot=document.getElementById('firmwareDot');
+  const bell=document.getElementById('firmwareBell');
+  const updateLabel=document.getElementById('firmwareUpdateLabel');
+  if(dot)dot.hidden=!firmwareUpdateAvailable;
+  if(updateLabel)updateLabel.hidden=!firmwareUpdateAvailable;
+  if(bell)bell.setAttribute('aria-label',firmwareUpdateAvailable?'Firmware update available':'Notifications');
+  const title=document.getElementById('firmwareNoticeTitle');
+  const message=document.getElementById('firmwareNoticeMessage');
+  const help=document.getElementById('firmwareNoticeHelp');
+  if(firmwareUpdateAvailable){
+    if(title)title.textContent='Firmware update available';
+    if(message)message.textContent=`Aura is running version ${firmwareVersion||'unknown'}; version ${latestFirmwareVersion} is available.`;
+    if(help)help.textContent='If Wi-Fi credentials are not configured, add them with Wi-Fi Settings in Quick Actions. Then choose Update in the Quick Actions bar.';
+  }else if(firmwareVersion){
+    if(title)title.textContent='Firmware is up to date';
+    if(message)message.textContent=`Installed version: ${firmwareVersion}${latestFirmwareVersion?` · Latest version: ${latestFirmwareVersion}`:''}.`;
+    if(help)help.textContent='';
+  }else{
+    if(title)title.textContent='Firmware status';
+    if(message)message.textContent='Connect your FROST Aura to check its firmware.';
+    if(help)help.textContent='';
+  }
+}
 
 function syncedCategories(){
   if(!syncedConfigAvailable)return [];
@@ -470,7 +518,11 @@ window.addEventListener('frost-device-dnd-status',event=>{
 });
 window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
-  if(mac) deviceMac=mac;
+  if(mac){
+    deviceMac=mac;
+    firmwareInfoUnsubscribe();
+    if(authenticatedUser?.uid)firmwareInfoUnsubscribe=subscribeStoredFirmwareInfo(authenticatedUser.uid,mac,renderFirmwareStatus);
+  }
   statisticsUnsubscribe();
   // Always subscribe with the bound device MAC (when known) + user so stats remain available after disconnect.
   statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
@@ -1482,6 +1534,13 @@ function renderDevice(){
   diffRows();
   document.getElementById('jsonOut').textContent=JSON.stringify(toDeviceJSON(),null,2);
 }
+document.getElementById('firmwareBell').addEventListener('click',event=>{
+  const bell=event.currentTarget as HTMLButtonElement;
+  const notice=document.getElementById('firmwareNotice');
+  const expanded=bell.getAttribute('aria-expanded')==='true';
+  bell.setAttribute('aria-expanded',String(!expanded));
+  if(notice)notice.hidden=expanded;
+});
 document.getElementById('dConnect').addEventListener('click',async()=>{
   const button=document.getElementById('dConnect');
   button.disabled=true;
@@ -1513,8 +1572,17 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
         deviceMac=mac;
         document.getElementById('dMac').textContent=mac;
         window.dispatchEvent(new CustomEvent('frost-device-mac',{detail:{macAddress:mac}}));
-        await bleClient.syncCurrentTime();
-        toast('Device time synchronized');
+        try{
+          await bleClient.syncCurrentTime();
+          toast('Device time synchronized');
+        }catch(timeError){
+          toast(timeError instanceof Error?timeError.message:'Device time could not be synchronized');
+        }
+        if(authenticatedUser?.uid){
+          const firmwareInfo=await syncFirmwareInfoToFirestore(authenticatedUser.uid,mac,bleClient);
+          renderFirmwareStatus(firmwareInfo);
+          if(firmwareInfo.firmware_update_available)toast('Firmware update available');
+        }
       }catch(error){
         document.getElementById('dMac').textContent=deviceMac||'Unavailable';
         toast(error instanceof Error?error.message:'MAC address could not be read');
@@ -1544,6 +1612,8 @@ document.getElementById('dExport').addEventListener('click',()=>{
 });
 document.getElementById('dReset').addEventListener('click',()=>{location.reload();});
 window.addEventListener('frost-device-bound',()=>{
+  firmwareInfoUnsubscribe();
+  if(authenticatedUser?.uid)firmwareInfoUnsubscribe=subscribeStoredFirmwareInfo(authenticatedUser.uid,null,renderFirmwareStatus);
   void runQuickCommand('BIND:OK','Device binding confirmed on Aura');
 });
 window.addEventListener('frost:toast',event=>{
@@ -1624,6 +1694,12 @@ window.addEventListener('frost-quick-action',event=>{
 function setChip(){const chip=document.getElementById('chip');chip.classList.toggle('live',connected);document.getElementById('chipTxt').textContent=connected?'Connected':'Not connected';}
 function refreshDirty(){
   const dirty=JSON.stringify(snapshot())!==JSON.stringify(device);
+  const syncButton=document.getElementById('cfgSync');
+  if(syncButton){
+    syncButton.classList.toggle('needs-sync',dirty);
+    syncButton.title=dirty?'Reminder changes are not on Aura yet. Select Sync Now to send them.':'Send current schedule to your FROST Aura';
+    syncButton.setAttribute('aria-label',dirty?'Sync changed reminder schedule now':'Sync Now');
+  }
   document.querySelector('#tabs [data-p="device"]').style.color=dirty?'var(--sky)':'';
 }
 function show(p){
@@ -1729,6 +1805,7 @@ document.getElementById('signout').addEventListener('click',()=>{
   window.dispatchEvent(new CustomEvent('frost-signout'));
 });
 applyUser(authenticatedUser);
+if(authenticatedUser?.uid)firmwareInfoUnsubscribe=subscribeStoredFirmwareInfo(authenticatedUser.uid,deviceMac,renderFirmwareStatus);
 statisticsUnsubscribe();
 statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
 

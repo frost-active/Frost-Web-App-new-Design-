@@ -14,6 +14,7 @@ export const CMD_JSON_BEGIN = 'JSON_BEGIN';
 export const CMD_JSON_CHUNK_PREFIX = 'JSON_CHUNK:';
 export const CMD_JSON_END = 'JSON_END';
 export const CMD_DEVICE_MAC_GET = 'MAC:GET';
+export const CMD_OTA_INFO = 'OTA:INFO';
 
 type BluetoothCharacteristic = {
   uuid: string;
@@ -142,6 +143,10 @@ export class FrostBleClient {
     const prefix = 'DEVICE_MAC:';
     if (!status.startsWith(prefix)) throw new Error(`Unexpected MAC response: ${status}`);
     return status.slice(prefix.length).trim();
+  }
+
+  async otaInfo(): Promise<string> {
+    return this.sendAndRead(CMD_OTA_INFO);
   }
 
   async sendJsonConfiguration(configuration: unknown): Promise<string> {

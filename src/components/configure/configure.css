@@ -126,6 +126,7 @@
 #page-configure .cfg-quiet{fill:rgba(212,162,76,.07)}
 #page-configure .cfg-quietline{stroke:rgba(212,162,76,.3);stroke-width:1.5;stroke-dasharray:3 5}
 #page-configure .cfg-cattrack{fill:none;stroke:rgba(230,241,248,.05)}
+#page-configure .cfg-cattrack.cfg-selectedtrack{stroke:var(--c);stroke-opacity:.2}
 #page-configure .cfg-seg{fill:none;stroke-linecap:round;cursor:grab}
 #page-configure .cfg-seg.cfg-dim{opacity:.34}
 #page-configure .cfg-seg.cfg-hit{cursor:pointer}
@@ -193,6 +194,12 @@
 #page-configure .cfg-dialcard .cfg-dial{max-width:100%}
 /* the dial is a read-only face now: tap to pick, the round centre logs */
 #page-configure .cfg-seg{cursor:pointer}
+#page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled){border-color:var(--mint);background:rgba(29,158,117,.16);color:var(--ink);animation:cfg-sync-pulse 1.25s ease-in-out infinite}
+@keyframes cfg-sync-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(93,202,165,0);border-color:rgba(93,202,165,.55)}
+  50%{box-shadow:0 0 0 5px rgba(93,202,165,.16);border-color:var(--mint)}
+}
+@media(prefers-reduced-motion:reduce){#page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled){animation:none;box-shadow:0 0 0 2px rgba(93,202,165,.22)}}
 /* shared-input tweaks */
 #page-configure .cfg-chipb.cfg-x{background:none}
 #page-configure .cfg-ctimein[aria-invalid=true]{outline:1px solid #E4674F;border-radius:4px}
