@@ -7,7 +7,7 @@ import DeviceBinding from './components/DeviceBinding';
 import { ConfigureClockPanel, ConfigureSidePanel, ConfigureChallengesPanel } from './pages/ConfigurePage';
 import { MyDayStore } from './components/configure/store';
 import type { ConfigureBridge } from './components/configure/types';
-import { useDeviceConfig } from './DeviceConfigSync';
+import { useDeviceConfig, useDeviceConfigHistory } from './DeviceConfigSync';
 import type { User } from 'firebase/auth';
 
 export default function HomeScreen({ user }: { user: User }) {
@@ -23,7 +23,8 @@ export default function HomeScreen({ user }: { user: User }) {
   const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const { config: storedDeviceConfig, dndEnabled: storedDndEnabled } = useDeviceConfig(macAddress, user.uid);
+  const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled } = useDeviceConfig(macAddress, user.uid);
+  const storedConfigHistory = useDeviceConfigHistory(macAddress, user.uid);
 
   useEffect(() => {
     const handleMac = (event: Event) => {
@@ -50,6 +51,15 @@ export default function HomeScreen({ user }: { user: User }) {
       window.dispatchEvent(new CustomEvent('frost-device-config', { detail: { config: storedDeviceConfig } }));
     }
   }, [macAddress, storedDeviceConfig]);
+
+  useEffect(() => {
+    const entries = storedConfigHistory.slice();
+    if (storedDeviceConfig && lastSyncedAt && !entries.some((entry) => entry.syncedAt.getTime() === lastSyncedAt.getTime())) {
+      entries.push({ config: storedDeviceConfig, syncedAt: lastSyncedAt });
+    }
+    entries.sort((left, right) => left.syncedAt.getTime() - right.syncedAt.getTime());
+    window.dispatchEvent(new CustomEvent('frost-device-config-history', { detail: { entries } }));
+  }, [lastSyncedAt, storedConfigHistory, storedDeviceConfig]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('frost-device-dnd-status', { detail: { enabled: Boolean(storedDndEnabled) } }));

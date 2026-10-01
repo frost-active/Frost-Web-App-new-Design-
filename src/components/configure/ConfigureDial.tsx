@@ -90,6 +90,7 @@ export default function ConfigureDial({ snap, store }: Props) {
       {/* centre: the selected reminder's day, filled in from real Acknowledged data */}
       {sel ? (() => {
         const fraction = sel.done / sel.target, met = sel.done >= sel.target, streak = streakOf(sel);
+        const currentDay = Math.min(sel.streakDays, streak + 1);
         return (
           <>
             <circle cx={CX} cy={CY} r={R_DOSE} className={cn('dosetrk')} />
@@ -97,7 +98,7 @@ export default function ConfigureDial({ snap, store }: Props) {
             <text x={CX} y={CY - 54} className={cn('ctrName')}>{shorten(displayName(sel), 18)}</text>
             <text x={CX} y={CY + 8} className={cn('ctrBig')}>{met ? '✓' : sel.done}</text>
             <text x={CX} y={CY + 32} className={cn('ctrSub')}>{(met ? 'ALL ' : 'OF ') + sel.target + ' ' + unitFor(sel.target, sel.unit).toUpperCase()}</text>
-            <text x={CX} y={CY + 68} className={cn('ctrStreak')}>{streak ? `${streak} of ${sel.streakDays} days` : `day 1 of ${sel.streakDays}`}</text>
+            <text x={CX} y={CY + 68} className={cn('ctrStreak')}>{`day ${currentDay} of ${sel.streakDays}`}</text>
           </>
         );
       })() : (

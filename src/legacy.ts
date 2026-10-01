@@ -431,11 +431,14 @@ let firmwareInfoUnsubscribe:()=>void=()=>undefined;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
 let storedStatistics:DeviceStatistics[]=[];
+let storedConfigHistory=[];
 /* Every place fresh statistics land — an explicit Sync on the Statistics tab, or the
    realtime DB subscription — also republishes the Configure ("My day") view, so its
    Acknowledged counts (and the centre tick mark) update immediately, automatically. */
-function setStoredStatistics(records:DeviceStatistics[]){
-  storedStatistics=records;
+function setStoredStatistics(records:DeviceStatistics[],merge=false){
+  const byDate=new Map((merge?storedStatistics:[]).map(record=>[record.date,record]));
+  records.forEach(record=>byDate.set(record.date,record));
+  storedStatistics=[...byDate.values()].sort((left,right)=>left.date.localeCompare(right.date));
   if(page==='stats')renderStats();
   notifyConfigure();
 }
@@ -509,6 +512,10 @@ window.addEventListener('frost-device-config',event=>{
 });
 window.addEventListener('frost-device-config-saved',()=>{
   syncedConfigAvailable=true;
+  if(page==='stats')renderStats();
+});
+window.addEventListener('frost-device-config-history',event=>{
+  storedConfigHistory=(event as CustomEvent<{entries?:Array<{config:typeof defaultConfig;syncedAt:Date}>}>).detail?.entries||[];
   if(page==='stats')renderStats();
 });
 window.addEventListener('frost-device-dnd-status',event=>{
@@ -640,21 +647,38 @@ function notifyConfigure(){cfgVersion++;cfgView=null;cfgListeners.forEach(l=>l()
 function getConfigureView(){
   if(cfgView)return cfgView;
   const ackToday={};
+  const ackHistory={};
+  const today=localISODate();
+  const byDate=new Map(storedStatistics.map(record=>[record.date,record]));
+  const countsForRecord=record=>{
+    const counts={};
+    Object.keys(STAT_FIELD).forEach(k=>{
+      const field=STAT_FIELD[k];
+      counts[k]=Math.max(0,Number(k==='water'?record.hyd_ml:record[field+'_ack']||0));
+      if(k==='meds'||k==='custom'){
+        const cat=CATS.find(category=>category.k===k);
+        const entries=k==='meds'?record.medEntries:record.custEntries;
+        (cat?.groups||[]).forEach((group,index)=>{
+          const id=String(group.id??index);
+          counts[`${k}:${id}`]=Math.max(0,Number(entries?.[index]?.ack||0));
+        });
+      }
+    });
+    return counts;
+  };
+  byDate.forEach((record,date)=>{ackHistory[date]=countsForRecord(record);});
+  const todayCounts=ackHistory[today]||{};
   Object.keys(STAT_FIELD).forEach(k=>{
     // Hydration's target is a volume (ml), not a cue count, so it's scored off today's
     // real ml total rather than the reminder-acknowledged count every other habit uses.
-    if(k==='water'){
-      const today=storedStatistics.length?storedStatistics[storedStatistics.length-1]:null;
-      ackToday[k]=today?Math.max(0,Number(today.hyd_ml||0)):0;
-    } else {
-      ackToday[k]=realDayCounts(k).ack;
-    }
+    ackToday[k]=todayCounts[k]??0;
+    Object.keys(todayCounts).forEach(id=>{if(id.startsWith(`${k}:`))ackToday[id]=todayCounts[id];});
   });
   cfgView={
     version:cfgVersion, cats:CATS, sel:sel?{k:sel.k,i:sel.i}:null,
     nowH:NOW_H, dnd:[DND[0],DND[1]], dndOn:Boolean(dndOn),
     pomo:{focus:RAW.pomodoro.focus_min,brk:RAW.pomodoro.break_min,cycles:RAW.pomodoro.cycles},
-    today:localISODate(), synced:syncedConfigAvailable, ackToday
+    today, synced:syncedConfigAvailable, ackToday, ackHistory
   };
   return cfgView;
 }
@@ -921,6 +945,7 @@ const configureBridge={
    Acknowledgement % = ACK / (ACK + MISS). When both are 0, show 0%.
    Hydration period goals: day = daily, week = daily×7, month = daily×daysInMonth. */
 const STAT_FIELD={water:'hyd',meds:'med',eye:'eye',stretch:'str',walk:'walk',meditation:'medit',custom:'cust'};
+const CONFIG_REMINDER_KEY={water:'hydration',eye:'eye',stretch:'stretch',walk:'walk'};
 function hasRealStats(){ return storedStatistics.length>0; }
 function parseStatDate(value){
   if(!value) return null;
@@ -961,10 +986,84 @@ function statRecordsForRange(){
 function realDayCounts(catKey){
   const field=STAT_FIELD[catKey];
   if(!field || !hasRealStats()) return {ack:0, miss:0, due:0};
-  const today=storedStatistics[storedStatistics.length-1];
+  const today=storedStatistics.find(record=>record.date===localISODate());
   if(!today) return {ack:0, miss:0, due:0};
   const ack=Math.max(0,Number(today[field+'_ack']||0)), miss=Math.max(0,Number(today[field+'_miss']||0));
   return {ack, miss, due:ack+miss};
+}
+function configDayEnabled(days,date){
+  return !Array.isArray(days)||!days.length||days.includes(DOW[date.getDay()]);
+}
+function configMinute(value){
+  const minute=typeof value==='number'?value*60:Number(value?.h||0)*60+Number(value?.m||0);
+  return Number.isFinite(minute)&&minute>=0&&minute<1440?Math.round(minute):null;
+}
+function slotsForConfigDay(config,key,date){
+  const slots=[],reminders=config?.reminders||{},dateKey=localISODate(date);
+  const add=(id,value)=>{const minute=configMinute(value);if(minute!=null)slots.push({id,minute});};
+  const reminderKey=CONFIG_REMINDER_KEY[key];
+  if(reminderKey){
+    const reminder=reminders[reminderKey];
+    if(!reminder?.enabled||!configDayEnabled(reminder.days,date))return slots;
+    if(reminder.mode==='interval'){
+      const start=Number(reminder.start_hour||0)*60+Number(reminder.start_min||0);
+      const end=Number(reminder.end_hour||0)*60+Number(reminder.end_min||0);
+      const step=Number(reminder.interval_ms)/60000;
+      if(step>0&&end>=start){
+        for(let minute=start,guard=0;minute<=end+1e-7&&guard++<500;minute+=step)add(key,minute/60);
+      }
+    }else{
+      (reminder.abs?.times||[]).forEach(time=>add(key,time));
+    }
+    return slots;
+  }
+  if(key==='meds'){
+    const medication=reminders.medication;
+    if(!medication?.enabled)return slots;
+    (medication.medicines||[]).forEach((medicine,index)=>{
+      if(medicine.enabled===false||(medicine.start&&dateKey<medicine.start)||(medicine.end&&dateKey>medicine.end)||!configDayEnabled(medicine.days,date))return;
+      const id=medicine.id||`med_${String(index+1).padStart(3,'0')}`;
+      (medicine.doses||[]).forEach(dose=>add(`meds:${id}`,dose));
+    });
+    return slots;
+  }
+  if(key==='custom'){
+    const custom=reminders.custom;
+    if(!custom?.enabled)return slots;
+    (custom.events||[]).forEach((item,index)=>{
+      if(item.enabled===false)return;
+      if(item.type==='absolute'&&item.date!==dateKey)return;
+      if(item.type!=='absolute'&&!configDayEnabled(item.days,date))return;
+      const id=item.id||`custom_${String(index+1).padStart(3,'0')}`;
+      add(`custom:${id}`,Number(item.h||0)+Number(item.m||0)/60);
+    });
+    return slots;
+  }
+  if(key==='meditation'){
+    const meditation=reminders.meditation;
+    if(meditation?.enabled&&configDayEnabled(meditation.days,date))add(key,Number(meditation.sh||0)+Number(meditation.sm||0)/60);
+  }
+  return slots;
+}
+function plannedSlotsForDate(key,dateKey){
+  const slots=new Set(),date=parseStatDate(dateKey);
+  if(!date)return 0;
+  storedConfigHistory.forEach((entry,index)=>{
+    const start=entry.syncedAt instanceof Date?entry.syncedAt.getTime():new Date(entry.syncedAt).getTime();
+    const next=storedConfigHistory[index+1];
+    const end=next?(next.syncedAt instanceof Date?next.syncedAt.getTime():new Date(next.syncedAt).getTime()):Infinity;
+    if(!Number.isFinite(start)||end<=start)return;
+    slotsForConfigDay(entry.config,key,date).forEach(slot=>{
+      const scheduledAt=new Date(date.getFullYear(),date.getMonth(),date.getDate(),Math.floor(slot.minute/60),slot.minute%60).getTime();
+      if(scheduledAt>=start&&scheduledAt<end)slots.add(`${slot.id}:${slot.minute}`);
+    });
+  });
+  return slots.size;
+}
+function ackDatesForRange(){
+  const count=range==='day'?1:range==='week'?7:30;
+  const date=new Date();date.setHours(0,0,0,0);
+  return Array.from({length:count},(_,index)=>{const current=new Date(date);current.setDate(date.getDate()-(count-index-1));return localISODate(current);});
 }
 function waterSeriesForRange(){
   const records=statRecordsForRange();
@@ -1123,66 +1222,59 @@ function renderAckPanel(){
   active=active.filter(c=>STAT_FIELD[c.k]);
 
   if(range==='day'){
-    lbl.textContent='today · ACK / (ACK + MISS)';
+    lbl.textContent='today · acknowledged / scheduled';
     if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders today.</div>';return;}
     const html=`<div class="ackGridWrap"><div class="ackGrid">
       ${active.map(c=>{
         const col=cvar(c.color);
         const real=realDayCounts(c.k);
+        const planned=plannedSlotsForDate(c.k,localISODate());
+        const done=Math.min(real.ack,planned);
         const rate=ackPct(real.ack, real.miss);
-        const due=real.due;
-        let cells;
-        if(!due){
-          cells=`<span class="ackCell" title="${c.label} · 0 ack · 0 miss · no events today"><i style="--c:${col};opacity:.12"></i></span>`;
-        } else {
-          cells=Array.from({length:due},(_,i)=>{
-            const ack=i<real.ack;
-            return `<span class="ackCell" title="${c.label} · ${ack?'acknowledged':'missed'} (${real.ack} ack / ${real.miss} miss)"><i style="--c:${col};opacity:${ack?1:.18}"></i></span>`;
-          }).join('');
-        }
-        return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,rate,`${real.ack}/${due}`)}</div>`;
+        const cells=planned?Array.from({length:planned},(_,i)=>{
+          const acknowledged=i<done,missed=i>=done&&i<Math.min(planned,done+real.miss);
+          const state=acknowledged?'acknowledged':missed?'missed':'scheduled';
+          return `<span class="ackCell" title="${c.label} · ${state} · ${real.ack} ACK / ${real.miss} missed · ${done}/${planned} planned"><i style="--c:${col};opacity:${acknowledged?1:missed ? .3 : .12}"></i></span>`;
+        }).join(''):`<span class="ackCell" title="${c.label} · no scheduled reminders · ${real.ack} ACK / ${real.miss} missed"><i style="--c:${col};opacity:.12"></i></span>`;
+        const planRate=planned?done/planned:0;
+        return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,planRate,`${done}/${planned}`)}</div>`;
       }).join('')}
     </div></div>`;
     panel.innerHTML=html;
     return;
   }
 
-  lbl.textContent=range==='week'?'last 7 days · ACK / (ACK + MISS)':'this month · ACK / (ACK + MISS)';
+  lbl.textContent=range==='week'?'last 7 days · acknowledged / scheduled':'last 30 days · acknowledged / scheduled';
   const D=['S','M','T','W','T','F','S'];
-  const records=statRecordsForRange();
-  if(!records.length){
-    panel.innerHTML='<div class="ackEmpty">No statistics stored for this range. Sync from the device to populate the database.</div>';
-    return;
-  }
   if(!active.length){panel.innerHTML='<div class="ackEmpty">No active reminders in this range.</div>';return;}
 
   const weekdayLetter=dateStr=>{
     const d=parseStatDate(dateStr);
     return d?D[d.getDay()]:'';
   };
-  const head=records.map(r=>{
-    const raw=String(r.date||'');
+  const dates=ackDatesForRange();
+  const head=dates.map(raw=>{
     if(range==='week') return weekdayLetter(raw);
     const d=parseStatDate(raw);
     return d?d.getDate():(raw.length>=8?Number(raw.slice(-2)):raw);
   });
-  const cols=records.length;
+  const byDate=new Map(storedStatistics.map(record=>[record.date,record]));
 
   const html=`<div class="ackGridWrap"><div class="ackGrid"><div class="ackDays"><span class="lbl"></span>${head.map(d=>`<span>${d}</span>`).join('')}<span class="lbl"></span></div>
     ${active.map(c=>{
       const col=cvar(c.color);
       const field=STAT_FIELD[c.k];
-      let sumAck=0, sumMiss=0;
-      const cells=Array.from({length:cols},(_,day)=>{
-        const rec=records[day];
-        const ack=Math.max(0,Number(rec[field+'_ack']||0)), miss=Math.max(0,Number(rec[field+'_miss']||0));
-        sumAck+=ack; sumMiss+=miss;
+      let sumAck=0, sumMiss=0, sumPlan=0;
+      const cells=dates.map(date=>{
+        const rec=byDate.get(date);
+        const ack=Math.max(0,Number(rec?.[field+'_ack']||0)), miss=Math.max(0,Number(rec?.[field+'_miss']||0));
+        const planned=plannedSlotsForDate(c.k,date), done=Math.min(ack,planned);
+        sumAck+=ack; sumMiss+=miss; sumPlan+=planned;
         const rate=ackPct(ack,miss);
-        const due=ack+miss;
-        return `<span class="ackCell" title="${c.label} · ${String(rec.date||'')} · ${ack} ack / ${miss} miss · ${due?Math.round(rate*100):0}%"><i style="--c:${col};opacity:${due?(.12+rate*.88).toFixed(2):'.12'}"></i></span>`;
+        return `<span class="ackCell" title="${c.label} · ${date} · ${done}/${planned} planned · ${ack} ACK / ${miss} missed · ${Math.round(rate*100)}%"><i style="--c:${col};opacity:${planned?(.12+(done/planned)*.88):'.12'}"></i></span>`;
       }).join('');
-      const overall=ackPct(sumAck,sumMiss);
-      return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,overall,`${sumAck}/${sumAck+sumMiss}`)}</div>`;
+      const overall=sumPlan?Math.min(sumAck,sumPlan)/sumPlan:0;
+      return `<div class="ackGridRow"><span class="lbl"><span class="dot" style="--c:${col}"></span>${c.label}</span>${cells}${pctPill(col,overall,`${Math.min(sumAck,sumPlan)}/${sumPlan}`)}</div>`;
     }).join('')}
   </div></div>`;
   panel.innerHTML=html;
@@ -1193,7 +1285,7 @@ async function syncStatistics(mode:'today'|'history'='today'){
   const status=document.getElementById('statsSyncStatus'), button=document.getElementById('statsSync') as HTMLButtonElement|null;
   if(!bleClient?.isConnected||!deviceMac){toast('Connect a FROST Aura device first');return;}
   if(button)button.disabled=true; if(status)status.textContent='Syncing…';
-  try{setStoredStatistics(await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid));if(status)status.textContent='Synced from device';}
+  try{setStoredStatistics(await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid),true);if(status)status.textContent='Synced from device';}
   catch(error){if(status)status.textContent='Sync failed';toast(error instanceof Error?error.message:'Statistics sync failed');}
   finally{if(button)button.disabled=false;}
 }

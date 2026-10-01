@@ -192,8 +192,19 @@ export class MyDayStore {
     // cfgAddedIds lives only in legacy.ts's in-memory state, so it starts empty on every
     // page load — replay what this browser already knows was added, or it would vanish.
     this.T.added.forEach((id) => this.bridge.markAdded(id));
-    this.unsubscribe = bridge.subscribe(() => this.emit());
-    this.timer = window.setInterval(() => { if (this.roll()) this.commit(); }, 60000);   // the day boundary
+    this.syncAcknowledgements();
+    this.unsubscribe = bridge.subscribe(() => {
+      const rolled = this.roll();
+      this.syncAcknowledgements();
+      if (rolled) this.commit();
+      else this.emit();
+    });
+    this.timer = window.setInterval(() => {
+      if (this.roll()) {
+        this.syncAcknowledgements();
+        this.commit();
+      }
+    }, 60000);   // the day boundary
   }
 
   dispose(): void { this.unsubscribe(); window.clearInterval(this.timer); this.listeners.clear(); }
@@ -208,6 +219,40 @@ export class MyDayStore {
     return this.T.rec[id] ??= { done: 0, streak: 0, best: 0, log: [], streakDays: FORM_DEFAULT, st: 'active', a0: this.T.today };
   }
   private habitsNow(): Habit[] { return deriveHabits(this.bridge.getView(), new Set(this.T.removed), new Set(this.T.added)); }
+
+  private acknowledgement(h: Habit, counts: Record<string, number> | undefined): number {
+    if (!counts) return 0;
+    const habitKey = h.gid ? `${h.k}:${h.gid}` : h.k;
+    return clamp(counts[habitKey] ?? counts[h.k] ?? 0, 0, h.target);
+  }
+
+  private syncAcknowledgements(): void {
+    const counts = this.bridge.getView().ackToday;
+    let changed = false;
+    this.habitsNow().forEach((h) => {
+      const r = this.rec(h.id);
+      const done = this.acknowledgement(h, counts);
+      if (r.done !== done) { r.done = done; changed = true; }
+    });
+    if (changed) this.save();
+  }
+
+  private historyStreak(h: Habit, history: ConfigureView['ackHistory'], today: string, a0: number): number | null {
+    const date = new Date(`${today}T00:00:00`);
+    date.setDate(date.getDate() - 1);
+    let count = 0, found = false;
+    for (let guard = 0; guard < 500; guard += 1, date.setDate(date.getDate() - 1)) {
+      const idx = dayNumber(date) - this.T.t0;
+      if (idx < a0) break;
+      if (!isDue(h, idx, this.T.t0, a0)) continue;
+      const counts = history[isoDate(date)];
+      if (!counts) break;
+      found = true;
+      if (this.acknowledgement(h, counts) < h.target) break;
+      count += 1;
+    }
+    return found ? count : null;
+  }
 
   /** the day boundary: score yesterday, start a fresh count */
   private roll(): boolean {
@@ -240,16 +285,10 @@ export class MyDayStore {
     const added = new Set(this.T.added);
     const ack = view.ackToday || {};
     const habits: HabitVM[] = deriveHabits(view, removed, added).map((h) => {
-      let r = this.T.rec[h.id];
-      const ackVal = ack[h.k];
-      if (ackVal != null) {
-        // A real Acknowledged count exists for this reminder type — it now drives "done"
-        // entirely (and feeds the streak the same way a manual log used to), no tap needed.
-        if (!r) r = this.rec(h.id);
-        r.done = clamp(ackVal, 0, h.target);
-      }
+      const r = this.T.rec[h.id];
+      const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today);
       return {
-        ...h, done: Math.min(r?.done ?? 0, h.target), streak: r?.streak ?? 0, best: r?.best ?? 0, log: r?.log ?? [],
+        ...h, done: Math.min(r?.done ?? 0, h.target), streak: historicalStreak ?? r?.streak ?? 0, best: r?.best ?? 0, log: r?.log ?? [],
         streakDays: r?.streakDays ?? FORM_DEFAULT, formed: r?.st === 'formed', audioId: this.T.audio[h.id] ?? null, a0: r?.a0 ?? this.T.today,
       };
     });

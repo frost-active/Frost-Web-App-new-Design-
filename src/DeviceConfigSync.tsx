@@ -9,6 +9,8 @@ export type FrostToastDetail = {
   message: string;
 };
 
+export type DeviceConfigHistoryEntry = { config: DeviceConfig; syncedAt: Date };
+
 type DeviceConfigDocument = {
   macAddress: string;
   config: DeviceConfig;
@@ -51,7 +53,7 @@ export async function saveDeviceConfig(macAddress: string, config: DeviceConfig,
       lastSyncedBy: uid,
       lastSyncedByEmail: email,
     }, { merge: true });
-    // Audit history is write-only for now; a future useDeviceConfigHistory hook can read it.
+    // Keep each saved schedule so Statistics can count slots active at their scheduled time.
     const historyWrite = addDoc(historyCollection(uid, macAddress), {
       macAddress,
       sanitizedMac,
@@ -171,4 +173,40 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
   }, [macAddress, uid]);
 
   return { config, lastSyncedAt, dndEnabled, loading, error };
+}
+
+export function useDeviceConfigHistory(macAddress: string | null, uid: string) {
+  const [history, setHistory] = useState<DeviceConfigHistoryEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    setHistory([]);
+
+    const subscribe = async () => {
+      const resolvedMac = macAddress || await resolveBoundMacAddress(uid);
+      if (cancelled || !resolvedMac) return;
+      unsubscribe = onSnapshot(historyCollection(uid, resolvedMac), (snapshot) => {
+        const entries = snapshot.docs.flatMap((item) => {
+          const data = item.data() as { config?: DeviceConfig; syncedAt?: Timestamp };
+          return data.config && data.syncedAt instanceof Timestamp
+            ? [{ config: data.config, syncedAt: data.syncedAt.toDate() }]
+            : [];
+        }).sort((left, right) => left.syncedAt.getTime() - right.syncedAt.getTime());
+        setHistory(entries);
+      }, (error) => {
+        console.error('Unable to load the synced FROST configuration history.', error);
+      });
+    };
+
+    void subscribe().catch((error: unknown) => {
+      if (!cancelled) console.error('Unable to subscribe to FROST configuration history.', error);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [macAddress, uid]);
+
+  return history;
 }

@@ -49,6 +49,8 @@ export type ConfigureView = {
   synced: boolean;
   /** today's real Acknowledged count from the Statistics sync, per category key (water/meds/eye/stretch/walk/meditation/custom) — drives the dial automatically, no manual logging */
   ackToday: Record<string, number>;
+  /** actual device acknowledgements by date and habit/category key */
+  ackHistory: Record<string, Record<string, number>>;
 };
 
 export type PomoField = 'focus_min' | 'break_min' | 'cycles';
