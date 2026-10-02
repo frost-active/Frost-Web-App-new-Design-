@@ -216,11 +216,14 @@
 /* the dial is a read-only face now: tap to pick, the round centre logs */
 #page-configure .cfg-seg{cursor:pointer}
 #page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled){border-color:var(--mint);background:rgba(29,158,117,.16);color:var(--ink);animation:cfg-sync-pulse 1.25s ease-in-out infinite}
+#page-configure .cfg-habits-sync{width:100%;min-height:44px;display:flex;align-items:center;justify-content:center}
+#page-configure .cfg-habits-sync.needs-sync:not(:disabled){border-color:var(--mint);background:rgba(29,158,117,.16);color:var(--ink);animation:cfg-sync-pulse 1.25s ease-in-out infinite}
+#page-configure .cfg-habits-sync:disabled{opacity:.65;cursor:wait}
 @keyframes cfg-sync-pulse{
   0%,100%{box-shadow:0 0 0 0 rgba(93,202,165,0);border-color:rgba(93,202,165,.55)}
   50%{box-shadow:0 0 0 5px rgba(93,202,165,.16);border-color:var(--mint)}
 }
-@media(prefers-reduced-motion:reduce){#page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled){animation:none;box-shadow:0 0 0 2px rgba(93,202,165,.22)}}
+@media(prefers-reduced-motion:reduce){#page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled),#page-configure .cfg-habits-sync.needs-sync:not(:disabled){animation:none;box-shadow:0 0 0 2px rgba(93,202,165,.22)}}
 /* shared-input tweaks */
 #page-configure .cfg-chipb.cfg-x{background:none}
 #page-configure .cfg-ctimein[aria-invalid=true]{outline:1px solid #E4674F;border-radius:4px}

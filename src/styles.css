@@ -25,9 +25,11 @@
   nav.tabs button:hover{color:var(--ink)}
   nav.tabs button[aria-current=true]{background:var(--panel2);color:var(--ink);font-weight:500}
   .hspace{margin-left:auto}
-  .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--faint);border-radius:99px;padding:6px 12px;font-size:12px;color:var(--muted)}
+  .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--faint);border-radius:99px;padding:6px 12px;font:inherit;font-size:12px;color:var(--muted);background:transparent;text-align:left;cursor:pointer;transition:.15s}
   .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
   .chip.live{color:var(--ink);border-color:rgba(93,202,165,.35)} .chip.live .dot{background:var(--mint)}
+  .chip:hover:not(:disabled){border-color:var(--sky);color:var(--ink)}
+  .chip:disabled{opacity:.75;cursor:wait}
   .firmware-notifications{position:relative;flex:none}
   .notification-bell{width:34px;height:34px;position:relative;display:grid;place-items:center;border:1px solid var(--faint);border-radius:9px;background:transparent;color:var(--muted);transition:.15s}
   .notification-bell:hover,.notification-bell[aria-expanded=true]{border-color:var(--sky);color:var(--ink);background:var(--panel2)}

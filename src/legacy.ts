@@ -63,7 +63,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <div class="hspace"></div>
     <button class="gridtog" id="fmttog" aria-pressed="false">12-hour<span class="sw"></span></button>
     <button class="gridtog on" id="gridtog" aria-pressed="true">Grid<span class="sw"></span></button>
-    <div class="chip" id="chip"><span class="dot"></span><span id="chipTxt">Not connected</span></div>
+    <button class="chip" id="chip" type="button" aria-label="Not connected. Connect to FROST Aura" title="Connect to FROST Aura"><span class="dot" aria-hidden="true"></span><span id="chipTxt">Not connected · Connect</span></button>
     <div class="firmware-notifications">
       <button class="notification-bell" id="firmwareBell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="firmwareNotice" title="Notifications">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -106,6 +106,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       </div>
       <div class="cfg-daycol cfg-side">
         <div id="configure-side-root" class="cfg-daycol"></div>
+        <button class="btn pri cfg-habits-sync" id="cfgSyncHabits" type="button" title="Send current schedule to your FROST Aura" aria-label="Sync schedule to device">Sync to Device</button>
         <div class="timing-hint" id="timingHint">
           <span class="ic">⏱</span>
           <span><b>Timing</b> is hidden while you chat with Aura.</span>
@@ -421,7 +422,7 @@ function buildPomoLaps(){
   pomoFrom=selStart;
   pomoTo=computePomoTo(pomoFrom, focus, brk, cycles);
 }
-let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false;
+let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false, connectionBusy:null|'connecting'|'disconnecting'=null;
 let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
 let firmwareVersion:string|null=null;
@@ -1554,15 +1555,13 @@ function diffRows(){
 let scheduleSyncInFlight=false;
 function setSyncButtonsBusy(busy){
   scheduleSyncInFlight=!!busy;
-  ['dSync','cfgSync'].forEach(id=>{
+  ['dSync','cfgSync','cfgSyncHabits'].forEach(id=>{
     const btn=document.getElementById(id);
     if(!btn) return;
     btn.disabled=busy || (id==='dSync' && !connected);
-    btn.textContent=id==='dSync'
-      ? (busy ? 'Syncing…' : 'Sync now')
-      : (busy ? 'Syncing…' : 'Sync Now');
+    btn.textContent=busy?'Syncing…':id==='dSync'?'Sync now':id==='cfgSyncHabits'?'Sync to Device':'Sync Now';
     btn.classList.toggle('is-syncing', busy);
-    if(id==='cfgSync'){
+    if(id==='cfgSync'||id==='cfgSyncHabits'){
       btn.setAttribute('aria-busy', busy ? 'true' : 'false');
       btn.title = busy
         ? 'Sending schedule to your FROST Aura…'
@@ -1599,7 +1598,9 @@ async function syncScheduleToDevice(){
 function renderDevice(){
   document.getElementById('dState').textContent=connected?'Connected':'Offline';
   document.getElementById('dState').classList.toggle('ok',connected);
-  document.getElementById('dConnect').textContent=connected?'Disconnect':'Connect';
+  const connectButton=document.getElementById('dConnect');
+  connectButton.textContent=connectionBusy==='connecting'?'Connecting…':connectionBusy==='disconnecting'?'Disconnecting…':connected?'Disconnect':'Connect';
+  connectButton.disabled=Boolean(connectionBusy);
   // Preserve in-flight Syncing… label; otherwise reflect connection state
   if(!scheduleSyncInFlight){
     const dSync=document.getElementById('dSync');
@@ -1616,6 +1617,14 @@ function renderDevice(){
       cfgSync.setAttribute('aria-busy','false');
       cfgSync.title='Send current schedule to your FROST Aura';
     }
+    const habitsSync=document.getElementById('cfgSyncHabits');
+    if(habitsSync){
+      habitsSync.disabled=false;
+      habitsSync.textContent='Sync to Device';
+      habitsSync.classList.remove('is-syncing');
+      habitsSync.setAttribute('aria-busy','false');
+      habitsSync.title='Send current schedule to your FROST Aura';
+    }
   } else {
     setSyncButtonsBusy(true);
   }
@@ -1629,9 +1638,10 @@ document.getElementById('firmwareBell').addEventListener('click',event=>{
   bell.setAttribute('aria-expanded',String(!expanded));
   if(notice)notice.hidden=expanded;
 });
-document.getElementById('dConnect').addEventListener('click',async()=>{
-  const button=document.getElementById('dConnect');
-  button.disabled=true;
+async function toggleDeviceConnection(){
+  if(connectionBusy)return;
+  connectionBusy=bleClient?.isConnected?'disconnecting':'connecting';
+  setChip(); renderDevice();
   try{
     if(bleClient?.isConnected){
       await bleClient.disconnect();
@@ -1681,8 +1691,13 @@ document.getElementById('dConnect').addEventListener('click',async()=>{
     document.getElementById('dMac').textContent=deviceMac||'Not available';
     setChip(); renderDevice();
     toast(error instanceof Error?error.message:'BLE connection failed');
-  }finally{button.disabled=false;}
-});
+  }finally{
+    connectionBusy=false;
+    setChip(); renderDevice();
+  }
+}
+document.getElementById('dConnect').addEventListener('click',()=>void toggleDeviceConnection());
+document.getElementById('chip').addEventListener('click',()=>void toggleDeviceConnection());
 document.getElementById('dRenameSave').addEventListener('click',async()=>{
   if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
   const input=document.getElementById('dRenameInput');
@@ -1693,6 +1708,7 @@ document.getElementById('dRenameSave').addEventListener('click',async()=>{
 });
 document.getElementById('dSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
+document.getElementById('cfgSyncHabits').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('dExport').addEventListener('click',()=>{
   const blob=new Blob([JSON.stringify(toDeviceJSON(),null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url; link.download='frost-config.json'; link.click(); URL.revokeObjectURL(url);
@@ -1779,15 +1795,25 @@ window.addEventListener('frost-quick-action',event=>{
 });
 
 /* ================= chrome: tabs, chip, grid, dirty ================= */
-function setChip(){const chip=document.getElementById('chip');chip.classList.toggle('live',connected);document.getElementById('chipTxt').textContent=connected?'Connected':'Not connected';}
+function setChip(){
+  const chip=document.getElementById('chip');
+  chip.classList.toggle('live',connected);
+  chip.disabled=Boolean(connectionBusy);
+  const busyLabel=connectionBusy==='disconnecting'?'Disconnecting…':'Connecting…';
+  document.getElementById('chipTxt').textContent=connectionBusy?busyLabel:connected?'Connected · Disconnect':'Not connected · Connect';
+  chip.setAttribute('aria-label',connectionBusy?`${busyLabel} FROST Aura`:connected?'Connected. Disconnect FROST Aura':'Not connected. Connect to FROST Aura');
+  chip.title=connectionBusy?`${busyLabel} FROST Aura`:connected?'Disconnect from FROST Aura':'Connect to FROST Aura';
+}
 function refreshDirty(){
   const dirty=JSON.stringify(snapshot())!==JSON.stringify(device);
-  const syncButton=document.getElementById('cfgSync');
-  if(syncButton){
+  ['cfgSync','cfgSyncHabits'].forEach(id=>{
+    const syncButton=document.getElementById(id);
+    if(!syncButton)return;
     syncButton.classList.toggle('needs-sync',dirty);
-    syncButton.title=dirty?'Reminder changes are not on Aura yet. Select Sync Now to send them.':'Send current schedule to your FROST Aura';
-    syncButton.setAttribute('aria-label',dirty?'Sync changed reminder schedule now':'Sync Now');
-  }
+    const actionName=id==='cfgSync'?'Sync Now':'Sync to Device';
+    syncButton.title=dirty?`Reminder changes are not on Aura yet. Select ${actionName} to send them.`:'Send current schedule to your FROST Aura';
+    syncButton.setAttribute('aria-label',dirty?'Sync changed reminder schedule now':id==='cfgSyncHabits'?'Sync schedule to device':'Sync Now');
+  });
   document.querySelector('#tabs [data-p="device"]').style.color=dirty?'var(--sky)':'';
 }
 function show(p){
