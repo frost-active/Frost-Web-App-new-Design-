@@ -702,28 +702,18 @@ const cfgOcc=(c,gidx)=>(c.gi?c.gi.map((g,i)=>g===gidx?i:-1).filter(i=>i>=0):[]);
 function cfgGapTime(times){
   const t=times.slice().sort((a,b)=>a-b);let at=9,gap=-1;
   for(let i=0;i<t.length;i++){const nxt=(i===t.length-1)?t[0]+24:t[i+1];if(nxt-t[i]>gap){gap=nxt-t[i];at=(t[i]+nxt)/2%24;}}
-  return Math.round(at*12)/12;
+  return Math.round(at*2)/2%24;
 }
 
 /* --- selection --- */
 function cfgSelect(k,i){sel={k,i};renderConfigure();}
 
 /* --- timing --- */
-function cfgUpdateAbsoluteTime(c,nv){
+function cfgUpdateAbsoluteTime(c,nv,index=sel.i){
   forceAbsoluteMode(c); // keep internal mode in sync so abs.times is used on sync
-  if(c.durs){
-    const pairs=c.times.map((t,i)=>({t:i===sel.i?nv:t,d:c.durs[i],g:c.gi?c.gi[i]:null,l:c.labels?c.labels[i]:null}));
-    pairs.sort((a,b)=>a.t-b.t);
-    c.times=pairs.map(p=>p.t); c.durs=pairs.map(p=>p.d);
-    sel.i=c.times.indexOf(nv);
-  } else {
-    const pairs=c.times.map((time,index)=>({time:index===sel.i?nv:time,label:c.labels?c.labels[index]:null,group:c.gi?c.gi[index]:null}));
-    pairs.sort((a,b)=>a.time-b.time);
-    c.times=pairs.map(pair=>pair.time);
-    if(c.labels)c.labels=pairs.map(pair=>pair.label);
-    if(c.gi)c.gi=pairs.map(pair=>pair.group);
-    sel.i=c.times.indexOf(nv);
-  }
+  if(index<0||index>=c.times.length)return;
+  c.times[index]=nv;
+  sel={k:c.k,i:index};
   renderConfigure();
 }
 /* i = index into the category's times (one cue) */
@@ -736,7 +726,7 @@ function cfgSetCueTime(k,i,nv){
     c.times[i]=nv;pomoFrom=nv;buildPomoLaps();
     const ni=c.times.indexOf(nv);sel={k,i:ni>=0?ni:0};renderConfigure();return;
   }
-  cfgUpdateAbsoluteTime(c,nv);
+  cfgUpdateAbsoluteTime(c,nv,i);
 }
 function cfgSetDuration(k,gid,v){
   const {c,group}=cfgFind(k,gid);if(!c)return;
@@ -751,23 +741,27 @@ function cfgSetRange(k,i,start,mins){
   const c=CATS.find(x=>x.k===k);if(!c||c.times[i]==null||!Number.isFinite(start))return;
   sel={k,i};
   c.dur=clamp(Math.round(mins),5,180);
-  cfgUpdateAbsoluteTime(c,start);
+  cfgUpdateAbsoluteTime(c,start,i);
 }
 function cfgSetCueCount(k,gid,n){
   const {c,gidx}=cfgFind(k,gid);if(!c)return;
   n=Math.max(1,Math.round(Number(n)||1));
   if(['water','eye','stretch','walk'].includes(c.k)){
     forceAbsoluteMode(c);
-    const idx=c.times.map((_,i)=>i).sort((a,b)=>c.times[a]-c.times[b]);
-    c.times=idx.map(i=>c.times[i]);
-    while(c.times.length<n){c.times.push(cfgGapTime(c.times));c.times.sort((a,b)=>a-b);}
-    if(c.times.length>n)c.times=c.times.slice(0,n);
-    if(sel&&sel.k===c.k)sel={k:c.k,i:Math.min(sel.i,c.times.length-1)};
+    const selectedTime=sel&&sel.k===c.k?c.times[sel.i]:null;
+    while(c.times.length<n)c.times.push(cfgGapTime(c.times));
+    while(c.times.length>n){
+      let latestIndex=0;
+      for(let index=1;index<c.times.length;index++)if(c.times[index]>c.times[latestIndex])latestIndex=index;
+      c.times.splice(latestIndex,1);
+    }
+    if(selectedTime!=null&&c.times.includes(selectedTime))sel={k:c.k,i:c.times.indexOf(selectedTime)};
+    else if(sel&&sel.k===c.k)sel={k:c.k,i:Math.min(sel.i,c.times.length-1)};
   } else if((c.k==='meds'||c.k==='custom')&&gidx>=0){
     let occ=cfgOcc(c,gidx);
     while(occ.length<n){
       const at=cfgGapTime(occ.map(i=>c.times[i]));
-      c.times.push(at);c.labels.push(c.groups[gidx].name||'');c.gi.push(gidx);sortCat(c);occ=cfgOcc(c,gidx);
+      c.times.push(at);c.labels.push(c.groups[gidx].name||'');c.gi.push(gidx);occ=cfgOcc(c,gidx);
     }
     while(occ.length>n){
       const last=occ.slice().sort((a,b)=>c.times[b]-c.times[a])[0];   // trim the latest dose first
@@ -1380,6 +1374,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       group.times.forEach(t=>doses.push(timeObj(t)));
     }
     if(!doses.length) return; // skip medicines with no doses
+    doses.sort((left,right)=>(left.h*60+left.m)-(right.h*60+right.m));
     const medStart = group.start || localISODate();
     const medWin = cfgStreakWindowFor(`meds:${group.id ?? gi}`, group.days, medStart);
     medicines.push({
@@ -1415,6 +1410,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     const times = occIndices.length
       ? occIndices.map(i=>timeObj(cus.times[i]))
       : (group.times || []).map(t=>timeObj(t));
+    times.sort((left,right)=>(left.h*60+left.m)-(right.h*60+right.m));
     const label = (occIndices.length && cus.labels && cus.labels[occIndices[0]] != null)
       ? cus.labels[occIndices[0]]
       : (group.name || 'Custom');

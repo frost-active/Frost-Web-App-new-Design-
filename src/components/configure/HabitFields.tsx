@@ -18,8 +18,8 @@ export function CueCount({ h, store }: EditorProps) {
   const n = h.times.length;
   const max = Math.max(h.k === 'meds' ? MED_MAX_DOSES : MAX_CUES, n);
   return (
-    <SliderField label="Number of cues" value={n} min={1} max={max} unit="cues" count={(v) => `${v} of ${max}`}
-      help="Drag to add or remove cues. Each cue gets its own time below — the daily target follows the count when auto-target is on."
+    <SliderField label="Number of cues" value={n} min={1} max={max} unit="cues" sliderOnly count={(v) => `${v} ${v === 1 ? 'cue' : 'cues'}`}
+      help="Drag and release to set the count. The cue-time sliders below adjust to match."
       onCommit={(v) => store.setCueCount(h, v)} />
   );
 }
@@ -39,17 +39,18 @@ export function Days({ h, store }: EditorProps) {
 
 /* ---- cue / dose times as chips ---- */
 export function CueTimes({ h, store, title, help, dose = false, removable = true }: EditorProps & { title: string; help: string; dose?: boolean; removable?: boolean }) {
+  const countUsesSlider = ['water', 'meds', 'eye', 'stretch', 'walk', 'custom'].includes(h.k);
   return (
     <div className={cn('msec')} style={{ marginBottom: 11 }}>
       <div className={cn('mlabel')}><span>{title}</span></div>
       <div className={cn('chips cues')}>
-        {h.times.map((t, j) => (
-          <span key={j} className={cn('chipb x')} style={cssVars({ '--c': h.color })}>
-            {dose && <b style={{ font: '700 11px Syne', marginRight: 2 }}>D{j + 1}</b>}
-            <TimeChip value={t} label={dose ? `Dose ${j + 1}` : 'Cue'} onCommit={(hour) => store.setCueTime(h, j, hour)} />
-            {removable && h.times.length > 1 && <button type="button" className={cn('rm')} aria-label={dose ? 'Remove dose' : 'Remove cue'} onClick={() => store.removeCue(h, j)}>&times;</button>}
-          </span>
-        ))}
+        {h.times.map((t, j) => {
+          const duplicateIndex = h.times.slice(0, j).filter((time) => time === t).length;
+          return <div key={`${h.id}:${t}:${duplicateIndex}`} className={cn('chipb x cue-time-card')} style={cssVars({ '--c': h.color })}>
+            <TimeChip value={t} label={dose ? `Dose ${j + 1}` : `Cue ${j + 1}`} onCommit={(hour) => store.setCueTime(h, j, hour)} />
+            {removable && !countUsesSlider && h.times.length > 1 && <button type="button" className={cn('rm')} aria-label={dose ? 'Remove dose' : 'Remove cue'} onClick={() => store.removeCue(h, j)}>&times;</button>}
+          </div>;
+        })}
       </div>
       <p className={cn('mhelp')}>{help}</p>
     </div>

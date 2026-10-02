@@ -29,10 +29,10 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
       <div className={cn('medform')}>
         {h.k === 'water' && <>
           <SliderField label="Daily goal" value={Math.round(h.target) || 2500} min={0} max={6000} step={100} unit="ml" boxWidth={64}
-            count={(v) => `${v} ml`} help="Your daily water target. Drag the slider or type a value — the count updates automatically each time you sync."
+            count={(v) => `${v} ml`} help="Your daily water target. Drag the slider or type a value."
             onCommit={(v) => store.setGoal(v)} />
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="When Aura reminds you to drink · use the slider above to add or remove cues" />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
           <CueDuration {...p} />
           <Days {...p} />
         </>}
@@ -46,13 +46,13 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
           </div>
           <Days {...p} />
           <CueCount {...p} />
-          <CueTimes {...p} title="Dose times" dose help="Each dose has its own time · daily target follows the number of doses" />
+          <CueTimes {...p} title="Dose times" dose help="Set each dose in 30-minute steps and choose AM or PM at the right." />
           <CueDuration {...p} />
         </>}
 
         {(h.k === 'eye' || h.k === 'stretch' || h.k === 'walk') && <>
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="Edit each cue’s time · use the slider above to add or remove cues" />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
           <CueDuration {...p} />
           <Days {...p} />
         </>}
@@ -82,14 +82,14 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
             count={(v) => `${v} day${v === 1 ? '' : 's'}`}
             help="Clean the bottle once every N days. Set to 1 for every day, 3 for every third day, and so on."
             onCommit={(v) => store.setIntervalDays(v)} />
-          <CueTimes {...p} title="Cue time" help="One cue only — the time Aura asks you to rinse the bottle on each due day." removable={false} />
+          <CueTimes {...p} title="Cue time" help="Drag in 30-minute steps and choose AM or PM at the right. This runs on each due day." removable={false} />
           <CueDuration {...p} />
         </>}
 
         {h.k === 'custom' && <>
           <HabitName {...p} title="Label" placeholder="e.g. Happy Birthday" max={20} help="Shown wherever this habit appears · up to 20 characters" />
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="Edit each cue’s time · use the slider above to add or remove cues" />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
           <CueDuration {...p} />
           <AudioField {...p} libOpen={libOpen} setLibOpen={setLibOpen} />
           <Days {...p} />

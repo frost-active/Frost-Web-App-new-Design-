@@ -19,11 +19,8 @@
 #page-configure .cfg-btn.cfg-grow{flex:1}
 #page-configure .cfg-rowbtns{display:flex;gap:6px;margin-top:13px;flex-wrap:wrap}
 #page-configure .cfg-chips{display:flex;flex-wrap:wrap;gap:6px}
-#page-configure .cfg-chips.cfg-cues{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;flex:1;min-width:0;width:100%}
-#page-configure .cfg-chips.cfg-cues .cfg-chipb.cfg-x{width:100%;box-sizing:border-box;justify-content:space-between;padding:8px 8px 8px 12px;min-height:40px;gap:6px}
-@media(max-width:420px){
-  #page-configure .cfg-chips.cfg-cues{grid-template-columns:1fr}
-}
+#page-configure .cfg-chips.cfg-cues{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;flex:1;min-width:0;width:100%}
+#page-configure .cfg-chips.cfg-cues .cfg-chipb.cfg-x{width:100%;box-sizing:border-box;min-width:0;min-height:64px;padding:8px 10px;gap:8px}
 #page-configure .cfg-chipb{border:1px solid var(--faint);background:none;color:var(--muted);border-radius:99px;padding:7px 12px;font-size:12px}
 #page-configure .cfg-chipb:hover{color:var(--ink)}
 #page-configure .cfg-chipb[aria-pressed=true]{border-color:var(--mint);background:var(--panel2);color:var(--ink)}
@@ -33,6 +30,30 @@
 #page-configure .cfg-chipb.cfg-x b{font:700 12px Syne;flex:none}
 #page-configure .cfg-chipb.cfg-x input.cfg-ctimein{width:44px;flex:none;background:none;border:0;padding:2px 0;margin:-2px 0;font:700 13px Syne;color:var(--ink);text-align:center;-moz-appearance:textfield}
 #page-configure .cfg-chipb.cfg-x input.cfg-ctimein:focus{outline:1px solid var(--sky);border-radius:4px}
+#page-configure .cfg-cue-time-card{display:block;border:0;border-radius:12px;background:color-mix(in srgb,var(--panel2) 58%,transparent)}
+#page-configure .cfg-timecontrol{display:flex;flex-direction:column;gap:4px;min-width:0;width:100%}
+#page-configure .cfg-timevalue{font:700 14px Syne;color:var(--ink);line-height:1.2}
+#page-configure .cfg-timevalue small{margin-left:3px;color:var(--muted);font:700 10px "DM Sans"}
+#page-configure .cfg-timesliderrow{display:flex;align-items:center;gap:9px;min-width:0}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider{flex:1;min-width:48px;width:100%;height:26px;margin:0;accent-color:var(--mint);cursor:grab;touch-action:pan-y}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider:active{cursor:grabbing}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider{-webkit-appearance:none;appearance:none;border:0;border-radius:99px;background:linear-gradient(var(--faint),var(--faint)) center/100% 5px no-repeat;outline:none}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider::-webkit-slider-runnable-track{height:5px;border-radius:99px;background:linear-gradient(90deg,color-mix(in srgb,var(--c) 60%,var(--faint)),var(--faint))}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;margin-top:-6.5px;border:2px solid var(--panel);border-radius:50%;background:var(--mint);box-shadow:0 0 0 2px color-mix(in srgb,var(--mint) 42%,transparent)}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider::-moz-range-track{height:5px;border-radius:99px;background:var(--faint)}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider::-moz-range-progress{height:5px;border-radius:99px;background:color-mix(in srgb,var(--c) 60%,var(--faint))}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider::-moz-range-thumb{width:14px;height:14px;border:2px solid var(--panel);border-radius:50%;background:var(--mint);box-shadow:0 0 0 2px color-mix(in srgb,var(--mint) 42%,transparent)}
+#page-configure .cfg-chipb.cfg-x input.cfg-timeslider:focus-visible{outline:2px solid var(--sky);outline-offset:3px}
+#page-configure .cfg-meridiem{display:inline-flex;align-items:center;gap:2px;flex:none;padding:2px;border:1px solid var(--faint);border-radius:8px;background:var(--panel)}
+#page-configure .cfg-meridiem button{width:28px;min-height:28px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:700 10px "DM Sans";cursor:pointer}
+#page-configure .cfg-meridiem button[aria-pressed=true]{background:var(--sky);color:var(--navy);box-shadow:0 1px 4px rgba(0,0,0,.2)}
+#page-configure .cfg-meridiem button:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+#page-configure .cfg-cuecount .cfg-mslider{display:block}
+#page-configure .cfg-cuecount .cfg-mslider input[type=range]{display:block;width:100%;height:8px}
+#page-configure .cfg-cuecount .cfg-mslider input[type=range]::-webkit-slider-thumb{width:22px;height:22px}
+#page-configure .cfg-cuecount .cfg-mslider input[type=range]::-moz-range-thumb{width:22px;height:22px}
+#page-configure .cfg-cuecount .cfg-sliderends{display:flex;justify-content:space-between;margin-top:7px;color:var(--muted);font:500 10px "DM Sans"}
+#page-configure .cfg-cuecount .cfg-mlabel .cfg-cnt{padding:4px 9px;border:1px solid rgba(93,202,165,.35);border-radius:99px;background:rgba(93,202,165,.1);color:var(--mint);font:700 11px Syne}
 #page-configure .cfg-chipb.cfg-x select.cfg-ctimemer{flex:none;min-width:48px;width:48px;max-width:54px;background:var(--panel2);border:1px solid var(--faint);border-radius:6px;padding:3px 2px;margin:0;font:700 11px "DM Sans";color:var(--ink);color-scheme:dark;cursor:pointer;appearance:auto}
 #page-configure .cfg-chipb.cfg-x select.cfg-ctimemer:focus{outline:1px solid var(--sky);border-color:var(--sky)}
 #page-configure .cfg-chipb.cfg-x select.cfg-ctimemer option{background:#0B2C45;color:#E6F1F8;font-weight:600}

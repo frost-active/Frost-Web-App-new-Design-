@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { clamp, cn, cssVars, parseClock, timeText, to12 } from './format';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { clamp, cn, cssVars, from12, parseClock, timeText, to12 } from './format';
 
 /* ---------- time entry: "3:05" + AM/PM ----------
    The model is the source of truth: when it moves (sorting, another edit) the inputs follow.
@@ -22,19 +22,70 @@ function useTimeDraft(value: number, onCommit: (hour: number) => void) {
   return { text, setText, mer, setMer, invalid, commit };
 }
 
-/** the compact time + AM/PM pair that lives inside a cue chip */
+const timeToHalfHourSlot = (value: number): number => {
+  const time = to12(value);
+  return Math.round(((time.h12 % 12) * 60 + time.m) / 30) % 24;
+};
+
+const halfHourSlotToTime = (slot: number, mer: string): number => {
+  const hour = Math.floor(slot / 2) || 12;
+  return from12(hour, (slot % 2) * 30, mer);
+};
+
+/** 24-position, half-hour cue slider with AM/PM at its trailing edge. */
 export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>) {
-  const d = useTimeDraft(value, onCommit);
+  const initialMer = to12(value).mer;
+  const [mer, setMer] = useState<string>(initialMer);
+  const [slot, setSlot] = useState(() => timeToHalfHourSlot(value));
+  const slotRef = useRef(slot);
+  const merRef = useRef(mer);
+  const latest = useRef(onCommit);
+  const rangeRef = useRef<HTMLInputElement>(null);
+  const marksId = `cue-time-marks-${useId()}`;
+  latest.current = onCommit;
+  useEffect(() => {
+    const nextSlot = timeToHalfHourSlot(value);
+    const nextMer = to12(value).mer;
+    setSlot(nextSlot);
+    setMer(nextMer);
+    slotRef.current = nextSlot;
+    merRef.current = nextMer;
+  }, [value]);
+  useEffect(() => {
+    const element = rangeRef.current;
+    if (!element) return;
+    const commit = () => {
+      const selectedSlot = Number(element.value);
+      slotRef.current = selectedSlot;
+      latest.current(halfHourSlotToTime(selectedSlot, merRef.current));
+    };
+    element.addEventListener('change', commit);
+    return () => element.removeEventListener('change', commit);
+  }, []);
+  const updateSlot = (next: number) => {
+    slotRef.current = next;
+    setSlot(next);
+  };
+  const setPeriod = (period: string) => {
+    merRef.current = period;
+    setMer(period);
+    latest.current(halfHourSlotToTime(slotRef.current, period));
+  };
+  const selectedTime = halfHourSlotToTime(slot, mer);
   return (
-    <>
-      <input className={cn('ctimein')} type="text" inputMode="numeric" aria-label={`${label} time`} aria-invalid={d.invalid || undefined}
-        value={d.text} onChange={(e) => d.setText(e.target.value)} onBlur={() => d.commit(d.text, d.mer)}
-        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
-      <select className={cn('ctimemer')} aria-label={`${label} AM or PM`} value={d.mer}
-        onChange={(e) => { d.setMer(e.target.value); d.commit(d.text, e.target.value); }}>
-        <option>AM</option><option>PM</option>
-      </select>
-    </>
+    <div className={cn('timecontrol')}>
+      <output className={cn('timevalue')} aria-live="polite">{timeText(selectedTime)} <small>{mer}</small></output>
+      <div className={cn('timesliderrow')}>
+        <input ref={rangeRef} className={cn('timeslider')} type="range" min={0} max={23} step={1} list={marksId}
+          value={slot} aria-label={`${label} time`} aria-valuetext={`${timeText(selectedTime)} ${mer}`}
+          onChange={(event) => updateSlot(Number(event.target.value))} />
+        <datalist id={marksId}>{Array.from({ length: 24 }, (_, index) => <option key={index} value={index} />)}</datalist>
+        <span className={cn('meridiem')} role="group" aria-label={`${label} AM or PM`}>
+          {(['AM', 'PM'] as const).map((period) => <button key={period} type="button" aria-pressed={mer === period}
+            onClick={() => setPeriod(period)}>{period}</button>)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -57,10 +108,10 @@ export function TimeRow({ value, label, disabled = false, onCommit }: TimeProps)
 /* ---------- slider + editable number box (cues / cue lasts / streak / goal / interval) ---------- */
 type SliderProps = {
   label: string; value: number; min: number; max: number; step?: number; unit: string;
-  count: (value: number) => string; help: ReactNode; boxWidth?: number; onCommit: (value: number) => void;
+  count: (value: number) => string; help: ReactNode; boxWidth?: number; sliderOnly?: boolean; onCommit: (value: number) => void;
 };
 
-export function SliderField({ label, value, min, max, step = 1, unit, count, help, boxWidth, onCommit }: SliderProps) {
+export function SliderField({ label, value, min, max, step = 1, unit, count, help, boxWidth, sliderOnly = false, onCommit }: SliderProps) {
   const upper = Math.max(max, value);
   const [draft, setDraft] = useState<number>(value);
   const rangeRef = useRef<HTMLInputElement>(null);
@@ -83,16 +134,19 @@ export function SliderField({ label, value, min, max, step = 1, unit, count, hel
     if (next !== value) onCommit(next);
   };
   return (
-    <div className={cn('msec')} style={{ marginBottom: 11 }}>
+    <div className={cn(`msec${sliderOnly ? ' cuecount' : ''}`)} style={{ marginBottom: 11 }}>
       <div className={cn('mlabel')}><span>{label}</span><span className={cn('cnt')}>{count(current)}</span></div>
       <div className={cn('mslider')}>
         <input ref={rangeRef} type="range" min={min} max={upper} step={step} value={current} aria-label={label} onChange={(e) => setDraft(Number(e.target.value))} />
-        <input className={cn('valbox')} type="number" min={min} max={upper} step={step} value={Number.isFinite(draft) ? draft : ''}
-          aria-label={`${label} value`} style={boxWidth ? { width: boxWidth } : undefined}
-          onChange={(e) => setDraft(e.target.value === '' ? NaN : Number(e.target.value))} onBlur={commitBox}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
-        <span className={cn('valunit')}>{unit}</span>
+        {!sliderOnly && <>
+          <input className={cn('valbox')} type="number" min={min} max={upper} step={step} value={Number.isFinite(draft) ? draft : ''}
+            aria-label={`${label} value`} style={boxWidth ? { width: boxWidth } : undefined}
+            onChange={(e) => setDraft(e.target.value === '' ? NaN : Number(e.target.value))} onBlur={commitBox}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+          <span className={cn('valunit')}>{unit}</span>
+        </>}
       </div>
+      {sliderOnly && <div className={cn('sliderends')} aria-hidden="true"><span>{min} cue</span><span>{upper} cues</span></div>}
       <p className={cn('mhelp')}>{help}</p>
     </div>
   );
