@@ -1,5 +1,5 @@
 import { arcF, arcMini, CX, CY, cn, cssVars, ptH, R_DOSE, R_NUM, R_RIM, R_TICK, ringRadius, ringStep, unitFor, wedge } from './format';
-import { displayName, FORM_DEFAULT, streakOf, type HabitVM, type MyDayStore, type Snapshot } from './store';
+import { dayOf, displayName, FORM_DEFAULT, streakOf, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 type Props = { snap: Snapshot; store: MyDayStore };
 
@@ -89,8 +89,8 @@ export default function ConfigureDial({ snap, store }: Props) {
 
       {/* centre: the selected reminder's day, filled in from real Acknowledged data */}
       {sel ? (() => {
-        const fraction = sel.done / sel.target, met = sel.done >= sel.target, streak = streakOf(sel);
-        const currentDay = Math.min(sel.streakDays, streak + 1);
+        const fraction = sel.done / sel.target, met = sel.done >= sel.target;
+        const currentDay = dayOf(sel);
         return (
           <>
             <circle cx={CX} cy={CY} r={R_DOSE} className={cn('dosetrk')} />

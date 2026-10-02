@@ -1,5 +1,5 @@
 import { cn, cssVars, unitFor } from './format';
-import { streakOf, type MyDayStore, type Snapshot } from './store';
+import { dayOf, type MyDayStore, type Snapshot } from './store';
 import { MiniProgress } from './ConfigureDial';
 
 type Props = { snap: Snapshot; store: MyDayStore; addOpen: boolean; onAddOpen: () => void; onSelect: () => void };
@@ -29,7 +29,7 @@ export default function HabitRail({ snap, store, addOpen, onAddOpen, onSelect }:
                   {h.label || h.name}
                   <small>{h.done} of {h.target} {unitFor(h.target, h.unit)} · {h.times.length} cue{h.times.length === 1 ? '' : 's'}{h.formed ? ' · formed' : h.parked ? ' · parked' : ''}</small>
                 </span>
-                <span className={cn('stk')}>{streakOf(h)}<small>DAYS</small></span>
+                <span className={cn('stk')}>{dayOf(h)}<small>DAYS</small></span>
               </button>
             ))}
           </div>

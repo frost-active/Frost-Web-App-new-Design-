@@ -94,6 +94,7 @@ export type Snapshot = {
 
 export const displayName = (h: { label: string; name: string }): string => h.label || h.name;
 export const streakOf = (h: { streak: number; done: number; target: number }): number => h.streak + (h.done >= h.target ? 1 : 0);
+export const dayOf = (h: { streak: number; done: number; target: number; streakDays: number }): number => Math.min(h.streakDays, streakOf(h) + 1);
 
 /* ---------- day arithmetic (whole local calendar days) ---------- */
 const dayNumber = (d: Date): number => Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAYMS);
