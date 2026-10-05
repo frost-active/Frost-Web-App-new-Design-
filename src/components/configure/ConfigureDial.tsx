@@ -1,4 +1,4 @@
-import { arcF, arcMini, CX, CY, cn, cssVars, ptH, R_DOSE, R_NUM, R_RIM, R_TICK, ringRadius, ringStep, unitFor, wedge } from './format';
+import { arcF, arcMini, CX, CY, cn, cssVars, ptH, R_DOSE, R_NUM, R_RIM, R_TICK, ringRadius, ringStep, TAU, TOP, to12, unitFor, wedge } from './format';
 import { dayOf, displayName, FORM_DEFAULT, streakOf, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 type Props = { snap: Snapshot; store: MyDayStore };
@@ -12,6 +12,32 @@ type Props = { snap: Snapshot; store: MyDayStore };
    DND (device quiet hours) is the one addition the prototype doesn't have.
    -------------------------------------------------------------------------- */
 const shorten = (text: string, max: number) => text.length > max ? text.slice(0, max - 1) + '…' : text;
+
+function cueMeridiems(times: number[]) {
+  const cues = new Map<string, { time: number; indexes: number[]; periods: Set<'AM' | 'PM'> }>();
+  times.forEach((time, index) => {
+    const { mer } = to12(time);
+    const ringTime = ((time % 12) + 12) % 12;
+    const key = ringTime.toFixed(8);
+    const cue = cues.get(key) ?? { time, indexes: [], periods: new Set<'AM' | 'PM'>() };
+    cue.indexes.push(index);
+    cue.periods.add(mer);
+    cues.set(key, cue);
+  });
+  return [...cues.values()].map(({ time, indexes, periods }) => ({
+    time,
+    indexes,
+    label: (['AM', 'PM'] as const).filter((period) => periods.has(period)).join('/'),
+  }));
+}
+
+function cueArcPath(radius: number, sweepHours: number) {
+  const sweep = sweepHours / 12 * TAU;
+  const halfSweep = sweep / 2;
+  const large = sweepHours > 6 ? 1 : 0;
+  const halfX = radius * Math.sin(halfSweep), y = radius * (1 - Math.cos(halfSweep));
+  return `M${(-halfX).toFixed(2)} ${y.toFixed(2)} A${radius} ${radius} 0 ${large} 1 ${halfX.toFixed(2)} ${y.toFixed(2)}`;
+}
 
 export default function ConfigureDial({ snap, store }: Props) {
   const list = snap.onDial;
@@ -30,7 +56,6 @@ export default function ConfigureDial({ snap, store }: Props) {
         </>
       )}
 
-      {/* hour ticks and numbers — a plain 12-hour face, 12 marks only, like an analog watch */}
       {Array.from({ length: 12 }, (_, hour) => {
         const major = hour % 3 === 0;
         const [x1, y1] = ptH(hour, R_TICK), [x2, y2] = ptH(hour, major ? R_TICK - 14 : R_TICK - 7);
@@ -70,13 +95,23 @@ export default function ConfigureDial({ snap, store }: Props) {
         return (
           <g key={h.id}>
             <circle cx={CX} cy={CY} r={r} className={`${cn('cattrack')}${on ? ` ${cn('selectedtrack')}` : ''}`} style={cssVars({ '--c': h.color })} strokeWidth={band + 2} onPointerDown={() => tap(0)} />
-            {h.times.map((t, i) => {
-              const sweep = Math.max(0.08, h.dur / 60) / 12, f0 = (t % 12) / 12;
-              const d = arcF(r, f0, f0 + sweep);
+            {cueMeridiems(h.times).map(({ time, indexes, label }) => {
+              const sweepHours = Math.max(0.08, h.dur / 60);
+              const theta = TOP + (((time + sweepHours / 2) % 12) / 12) * TAU;
+              const rotation = theta * 180 / Math.PI + 90;
+              const x = CX + r * Math.cos(theta), y = CY + r * Math.sin(theta);
               return (
-                <g key={i}>
-                  <path d={d} className={`${cn('seg')}${on ? '' : ` ${cn('dim')}`}`} stroke={h.color} strokeWidth={band} onPointerDown={() => tap(i)} />
-                  <path d={d} className={`${cn('seg')} ${cn('hit')}`} stroke="transparent" strokeWidth={hitW} onPointerDown={() => tap(i)} />
+                <g key={`${h.id}:${time}:${label}`} transform={`translate(${x} ${y}) rotate(${rotation})`}>
+                  {indexes.map((i) => {
+                    const d = cueArcPath(r, sweepHours);
+                    return (
+                      <g key={i} style={cssVars({ '--c': h.color })}>
+                        <path d={d} className={`${cn('seg')}${on ? '' : ` ${cn('dim')}`}`} stroke={h.color} strokeWidth={band} onPointerDown={() => tap(i)} />
+                        <path d={d} className={`${cn('seg')} ${cn('hit')}`} stroke="transparent" strokeWidth={hitW} onPointerDown={() => tap(i)} />
+                      </g>
+                    );
+                  })}
+                  <text x={0} y={0} transform={`rotate(${-rotation})`} className={cn('meridiem-label')} style={cssVars({ '--c': h.color })} textAnchor="middle" dominantBaseline="central" aria-hidden="true">{label}</text>
                 </g>
               );
             })}

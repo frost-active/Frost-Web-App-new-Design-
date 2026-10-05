@@ -9,7 +9,7 @@ export type EditorProps = { h: HabitVM; store: MyDayStore; snap: Snapshot };
 export function CueDuration({ h, store }: EditorProps) {
   return (
     <SliderField label="Cue lasts" value={Math.round(h.dur) || 1} min={1} max={60} unit="min" count={(v) => `${v} min`}
-      help="How long the cue runs on the dial and device. Drag the slider or type a value." onCommit={(v) => store.setDuration(h, v)} />
+      help="How long the cue runs on the dial and device. Drag the slider." onCommit={(v) => store.setDuration(h, v)} />
   );
 }
 
@@ -19,7 +19,7 @@ export function CueCount({ h, store }: EditorProps) {
   const max = Math.max(h.k === 'meds' ? MED_MAX_DOSES : MAX_CUES, n);
   return (
     <SliderField label="Number of cues" value={n} min={1} max={max} unit="cues" sliderOnly count={(v) => `${v} ${v === 1 ? 'cue' : 'cues'}`}
-      help="Drag and release to set the count. The cue-time sliders below adjust to match."
+      help="Drag and release to set the count."
       onCommit={(v) => store.setCueCount(h, v)} />
   );
 }

@@ -425,6 +425,11 @@ function buildPomoLaps(){
 let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false, connectionBusy:null|'connecting'|'disconnecting'=null;
 let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
+let boundDeviceMac:string|null=null;
+function showDeviceMac(mac=deviceMac){
+  const field=document.getElementById('dMac');
+  if(field)field.textContent=boundDeviceMac||mac||'Not available';
+}
 let firmwareVersion:string|null=null;
 let latestFirmwareVersion:string|null=null;
 let firmwareUpdateAvailable=false;
@@ -528,12 +533,17 @@ window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
   if(mac){
     deviceMac=mac;
+    showDeviceMac(mac);
     firmwareInfoUnsubscribe();
     if(authenticatedUser?.uid)firmwareInfoUnsubscribe=subscribeStoredFirmwareInfo(authenticatedUser.uid,mac,renderFirmwareStatus);
   }
   statisticsUnsubscribe();
   // Always subscribe with the bound device MAC (when known) + user so stats remain available after disconnect.
   statisticsUnsubscribe=subscribeDeviceStatistics(deviceMac??null,(records)=>{setStoredStatistics(records);},undefined,authenticatedUser?.uid);
+});
+window.addEventListener('frost-device-binding',event=>{
+  boundDeviceMac=(event as CustomEvent<{macAddress?:string|null}>).detail?.macAddress?.trim()||null;
+  showDeviceMac();
 });
 window.addEventListener('frost-device-disconnected',()=>{
   // Keep the last known deviceMac so DB statistics for the bound device continue to load.
@@ -1647,7 +1657,7 @@ async function toggleDeviceConnection(){
       await bleClient.disconnect();
       // Preserve deviceMac so Statistics continue to load from the database for the bound device.
       bleClient=null; connected=false; liveConfigSynced=false;
-      document.getElementById('dMac').textContent=deviceMac||'Not available';
+      showDeviceMac();
       window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
       setChip(); renderDevice(); toast('Disconnected');
     } else {
@@ -1659,16 +1669,16 @@ async function toggleDeviceConnection(){
       bleClient['device']?.addEventListener('gattserverdisconnected',()=>{
         // Preserve deviceMac for continued DB statistics after unexpected disconnect.
         bleClient=null; connected=false; liveConfigSynced=false;
-        document.getElementById('dMac').textContent=deviceMac||'Not available';
+        showDeviceMac();
         window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
         setChip(); renderDevice(); toast('Device disconnected');
       });
-      document.getElementById('dMac').textContent='Reading…';
+      showDeviceMac();
       setChip(); renderDevice(); toast(`Connected to ${bleClient.name}`);
       try{
         const mac=await bleClient.readMacAddress();
         deviceMac=mac;
-        document.getElementById('dMac').textContent=mac;
+        showDeviceMac(mac);
         window.dispatchEvent(new CustomEvent('frost-device-mac',{detail:{macAddress:mac}}));
         try{
           await bleClient.syncCurrentTime();
@@ -1682,13 +1692,13 @@ async function toggleDeviceConnection(){
           if(firmwareInfo.firmware_update_available)toast('Firmware update available');
         }
       }catch(error){
-        document.getElementById('dMac').textContent=deviceMac||'Unavailable';
+        showDeviceMac(deviceMac||'Unavailable');
         toast(error instanceof Error?error.message:'MAC address could not be read');
       }
     }
   }catch(error){
     bleClient=null; connected=false; liveConfigSynced=false;
-    document.getElementById('dMac').textContent=deviceMac||'Not available';
+    showDeviceMac();
     setChip(); renderDevice();
     toast(error instanceof Error?error.message:'BLE connection failed');
   }finally{

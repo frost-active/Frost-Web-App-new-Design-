@@ -54,6 +54,9 @@ export default function DeviceBinding({ user, mode = 'home', onStateChange }: Pr
       if (cancelled) return;
       setBinding(data);
       if (nextMac) setMacAddress(nextMac);
+      window.dispatchEvent(new CustomEvent('frost-device-binding', {
+        detail: { macAddress: data?.boundUid === user.uid ? data.macAddress : null },
+      }));
       if (!data) {
         setState('unbound');
         onStateChange?.('unbound');

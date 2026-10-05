@@ -32,7 +32,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
             count={(v) => `${v} ml`} help="Your daily water target. Drag the slider or type a value."
             onCommit={(v) => store.setGoal(v)} />
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM." />
           <CueDuration {...p} />
           <Days {...p} />
         </>}
@@ -52,7 +52,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
 
         {(h.k === 'eye' || h.k === 'stretch' || h.k === 'walk') && <>
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM." />
           <CueDuration {...p} />
           <Days {...p} />
         </>}
@@ -89,7 +89,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
         {h.k === 'custom' && <>
           <HabitName {...p} title="Label" placeholder="e.g. Happy Birthday" max={20} help="Shown wherever this habit appears · up to 20 characters" />
           <CueCount {...p} />
-          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM at the right." />
+          <CueTimes {...p} title="Cue times" help="Drag each time slider in 30-minute steps, then choose AM or PM." />
           <CueDuration {...p} />
           <AudioField {...p} libOpen={libOpen} setLibOpen={setLibOpen} />
           <Days {...p} />
