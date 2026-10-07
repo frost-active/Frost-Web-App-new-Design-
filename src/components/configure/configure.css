@@ -148,7 +148,9 @@
 #page-configure .cfg-quietline{stroke:rgba(212,162,76,.3);stroke-width:1.5;stroke-dasharray:3 5}
 #page-configure .cfg-cattrack{fill:none;stroke:rgba(230,241,248,.05)}
 #page-configure .cfg-cattrack.cfg-selectedtrack{stroke:var(--c);stroke-opacity:.2}
-#page-configure .cfg-meridiem-label{fill:var(--ink);font:700 7px "DM Sans";text-anchor:middle;dominant-baseline:central;pointer-events:none;filter:drop-shadow(0 1px 1px var(--navy))}
+#page-configure .cfg-time-node{fill:var(--c);stroke:var(--panel);stroke-width:2;pointer-events:all;cursor:pointer}
+#page-configure .cfg-time-node:focus{outline:none}
+#page-configure .cfg-time-node:focus-visible circle{stroke:var(--sky);stroke-width:2}
 #page-configure .cfg-seg{fill:none;stroke-linecap:round;cursor:grab}
 #page-configure .cfg-seg.cfg-dim{opacity:.34}
 #page-configure .cfg-seg.cfg-hit{cursor:pointer}

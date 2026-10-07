@@ -22,21 +22,23 @@ function useTimeDraft(value: number, onCommit: (hour: number) => void) {
   return { text, setText, mer, setMer, invalid, commit };
 }
 
-const timeToHalfHourSlot = (value: number): number => {
+const timeToQuarterHourSlot = (value: number): number => {
   const time = to12(value);
-  return Math.round(((time.h12 % 12) * 60 + time.m) / 30) % 24;
+  const minutesSince12 = ((time.h12 % 12) * 60 + time.m);
+  return Math.round(minutesSince12 / 15) % 48;
 };
 
-const halfHourSlotToTime = (slot: number, mer: string): number => {
-  const hour = Math.floor(slot / 2) || 12;
-  return from12(hour, (slot % 2) * 30, mer);
+const quarterHourSlotToTime = (slot: number, mer: string): number => {
+  const hour = Math.floor(slot / 4) || 12;
+  const minute = (slot % 4) * 15;
+  return from12(hour, minute, mer);
 };
 
-/** 24-position, half-hour cue slider with AM/PM at its trailing edge. */
+/** 48-position, 15-minute cue slider with AM/PM at its trailing edge. */
 export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>) {
   const initialMer = to12(value).mer;
   const [mer, setMer] = useState<string>(initialMer);
-  const [slot, setSlot] = useState(() => timeToHalfHourSlot(value));
+  const [slot, setSlot] = useState(() => timeToQuarterHourSlot(value));
   const slotRef = useRef(slot);
   const merRef = useRef(mer);
   const latest = useRef(onCommit);
@@ -44,7 +46,7 @@ export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>
   const marksId = `cue-time-marks-${useId()}`;
   latest.current = onCommit;
   useEffect(() => {
-    const nextSlot = timeToHalfHourSlot(value);
+    const nextSlot = timeToQuarterHourSlot(value);
     const nextMer = to12(value).mer;
     setSlot(nextSlot);
     setMer(nextMer);
@@ -57,7 +59,7 @@ export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>
     const commit = () => {
       const selectedSlot = Number(element.value);
       slotRef.current = selectedSlot;
-      latest.current(halfHourSlotToTime(selectedSlot, merRef.current));
+      latest.current(quarterHourSlotToTime(selectedSlot, merRef.current));
     };
     element.addEventListener('change', commit);
     return () => element.removeEventListener('change', commit);
@@ -69,17 +71,17 @@ export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>
   const setPeriod = (period: string) => {
     merRef.current = period;
     setMer(period);
-    latest.current(halfHourSlotToTime(slotRef.current, period));
+    latest.current(quarterHourSlotToTime(slotRef.current, period));
   };
-  const selectedTime = halfHourSlotToTime(slot, mer);
+  const selectedTime = quarterHourSlotToTime(slot, mer);
   return (
     <div className={cn('timecontrol')}>
       <output className={cn('timevalue')} aria-live="polite">{timeText(selectedTime)} <small>{mer}</small></output>
       <div className={cn('timesliderrow')}>
-        <input ref={rangeRef} className={cn('timeslider')} type="range" min={0} max={23} step={1} list={marksId}
+        <input ref={rangeRef} className={cn('timeslider')} type="range" min={0} max={47} step={1} list={marksId}
           value={slot} aria-label={`${label} time`} aria-valuetext={`${timeText(selectedTime)} ${mer}`}
           onChange={(event) => updateSlot(Number(event.target.value))} />
-        <datalist id={marksId}>{Array.from({ length: 24 }, (_, index) => <option key={index} value={index} />)}</datalist>
+        <datalist id={marksId}>{Array.from({ length: 48 }, (_, index) => <option key={index} value={index} />)}</datalist>
         <span className={cn('meridiem')} role="group" aria-label={`${label} AM or PM`}>
           {(['AM', 'PM'] as const).map((period) => <button key={period} type="button" aria-pressed={mer === period}
             onClick={() => setPeriod(period)}>{period}</button>)}

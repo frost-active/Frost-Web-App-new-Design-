@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { addDoc, collection, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
 import { firebaseDb } from './firebase';
 import { sanitizeMac } from './components/DeviceBinding';
 import type { DeviceConfig } from './config/defaultConfig';
@@ -22,6 +22,23 @@ type DeviceConfigDocument = {
 const configDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress), 'configs', 'current');
 const deviceDocument = (uid: string, macAddress: string) => doc(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress));
 const historyCollection = (uid: string, macAddress: string) => collection(firebaseDb, 'users', uid, 'devices', sanitizeMac(macAddress), 'configHistory');
+const bindingDocument = (macAddress: string) => doc(firebaseDb, 'deviceBindings', sanitizeMac(macAddress));
+
+const ACCOUNT_MISMATCH_MESSAGE = 'This Frost device is linked to another account. Sign in with the registered account to sync.';
+
+export async function ensureDeviceBindingMatchesUser(macAddress: string, uid: string): Promise<{ allowed: boolean; message: string }> {
+  const strippedMac = (macAddress || '').trim();
+  if (!strippedMac) return { allowed: false, message: 'Connect your Frost device before syncing.' };
+  const bindingSnap = await getDoc(bindingDocument(strippedMac));
+  if (!bindingSnap.exists()) {
+    return { allowed: false, message: 'This Frost device is not bound to your account yet. Bind the device before syncing.' };
+  }
+  const binding = bindingSnap.data() as { boundUid?: string };
+  if (binding.boundUid && binding.boundUid !== uid) {
+    return { allowed: false, message: ACCOUNT_MISMATCH_MESSAGE };
+  }
+  return { allowed: true, message: '' };
+}
 
 const resolveBoundMacAddress = async (uid: string): Promise<string | null> => {
   const bindings = await getDocs(query(collection(firebaseDb, 'deviceBindings'), where('boundUid', '==', uid)));
@@ -46,6 +63,14 @@ export async function saveDndStatus(uid: string, macAddress: string | null, dndE
 export async function saveDeviceConfig(macAddress: string, config: DeviceConfig, uid: string, email: string): Promise<void> {
   const sanitizedMac = sanitizeMac(macAddress);
   try {
+    const ownershipCheck = await ensureDeviceBindingMatchesUser(macAddress, uid);
+    if (!ownershipCheck.allowed) {
+      window.dispatchEvent(new CustomEvent<FrostToastDetail>('frost:toast', {
+        detail: { type: 'warning', message: ownershipCheck.message },
+      }));
+      return;
+    }
+
     const currentWrite = setDoc(configDocument(uid, macAddress), {
       macAddress,
       config,

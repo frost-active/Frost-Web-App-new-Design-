@@ -28,6 +28,7 @@ function cueMeridiems(times: number[]) {
     time,
     indexes,
     label: (['AM', 'PM'] as const).filter((period) => periods.has(period)).join('/'),
+    times: [...new Set(indexes.map((index) => times[index]))],
   }));
 }
 
@@ -95,7 +96,7 @@ export default function ConfigureDial({ snap, store }: Props) {
         return (
           <g key={h.id}>
             <circle cx={CX} cy={CY} r={r} className={`${cn('cattrack')}${on ? ` ${cn('selectedtrack')}` : ''}`} style={cssVars({ '--c': h.color })} strokeWidth={band + 2} onPointerDown={() => tap(0)} />
-            {cueMeridiems(h.times).map(({ time, indexes, label }) => {
+            {cueMeridiems(h.times).map(({ time, indexes, label, times }) => {
               const sweepHours = Math.max(0.08, h.dur / 60);
               const theta = TOP + (((time + sweepHours / 2) % 12) / 12) * TAU;
               const rotation = theta * 180 / Math.PI + 90;
@@ -111,7 +112,26 @@ export default function ConfigureDial({ snap, store }: Props) {
                       </g>
                     );
                   })}
-                  <text x={0} y={0} transform={`rotate(${-rotation})`} className={cn('meridiem-label')} style={cssVars({ '--c': h.color })} textAnchor="middle" dominantBaseline="central" aria-hidden="true">{label}</text>
+                  {times.map((cueTime, markerIndex) => {
+                    const markerOffset = times.length > 1 ? (markerIndex === 0 ? -5.2 : 5.2) : 0;
+                    const cueIndex = indexes.find((index) => h.times[index] === cueTime) ?? indexes[0] ?? 0;
+                    const { h12, m, mer } = to12(cueTime);
+                    const timeLabel = `${h12}${m === 0 ? '' : `:${String(m).padStart(2, '0')}`} ${mer}`;
+                    return (
+                      <g key={cueTime} className={cn('time-node')} style={cssVars({ '--c': h.color })}
+                        role="button" tabIndex={0} aria-label={`Select ${displayName(h)} at ${timeLabel}`}
+                        onPointerDown={(event) => { event.stopPropagation(); tap(cueIndex); }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            tap(cueIndex);
+                          }
+                        }}>
+                        <title>{timeLabel}</title>
+                        <circle cx={markerOffset} cy={0} r={5.5} />
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}

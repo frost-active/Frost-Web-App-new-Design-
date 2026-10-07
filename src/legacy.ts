@@ -3,7 +3,7 @@ import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFirmwareInfo } from './DeviceFirmwareSync';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
-import { saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
+import { ensureDeviceBindingMatchesUser, saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
 /* Clock toolbar — Sync Now on the top-right of the dial (desktop + mobile) */
@@ -714,6 +714,49 @@ function cfgGapTime(times){
   const t=times.slice().sort((a,b)=>a-b);let at=9,gap=-1;
   for(let i=0;i<t.length;i++){const nxt=(i===t.length-1)?t[0]+24:t[i+1];if(nxt-t[i]>gap){gap=nxt-t[i];at=(t[i]+nxt)/2%24;}}
   return Math.round(at*2)/2%24;
+}
+function normalizeCueTime(value){
+  return ((Number(value)%24)+24)%24;
+}
+function dedupeCategoryCueTimes(category){
+  if(!category||!Array.isArray(category.times))return 0;
+  const seen=new Set();
+  const keptIndexes=[];
+  let removed=0;
+  category.times.forEach((value,index)=>{
+    const key=Math.round(normalizeCueTime(value)*60000);
+    if(seen.has(key)){
+      removed+=1;
+      return;
+    }
+    seen.add(key);
+    keptIndexes.push(index);
+  });
+  if(!removed)return 0;
+  category.times=keptIndexes.map(index=>category.times[index]);
+  if(Array.isArray(category.durs)&&category.durs.length===keptIndexes.length){
+    category.durs=keptIndexes.map(index=>category.durs[index]);
+  } else if(Array.isArray(category.durs)&&category.durs.length>0){
+    category.durs=category.durs.filter((_,index)=>keptIndexes.includes(index));
+  }
+  if(Array.isArray(category.labels)&&category.labels.length===keptIndexes.length){
+    category.labels=keptIndexes.map(index=>category.labels[index]);
+  } else if(Array.isArray(category.labels)&&category.labels.length>0){
+    category.labels=category.labels.filter((_,index)=>keptIndexes.includes(index));
+  }
+  if(Array.isArray(category.gi)&&category.gi.length===keptIndexes.length){
+    category.gi=keptIndexes.map(index=>category.gi[index]);
+  } else if(Array.isArray(category.gi)&&category.gi.length>0){
+    category.gi=category.gi.filter((_,index)=>keptIndexes.includes(index));
+  }
+  return removed;
+}
+function sanitizeDuplicateCueTimes(){
+  let removed=0;
+  for(const category of CATS){
+    removed+=dedupeCategoryCueTimes(category);
+  }
+  return removed;
 }
 
 /* --- selection --- */
@@ -1584,6 +1627,19 @@ async function syncScheduleToDevice(){
   if(!bleClient?.isConnected){
     toast('Connect your FROST Aura device to sync the schedule.');
     return;
+  }
+  if(!deviceMac || !authenticatedUser?.uid){
+    toast('Sign in to your account before syncing this device.');
+    return;
+  }
+  const ownershipCheck = await ensureDeviceBindingMatchesUser(deviceMac, authenticatedUser.uid);
+  if(!ownershipCheck.allowed){
+    toast(ownershipCheck.message);
+    return;
+  }
+  const duplicateRemovals = sanitizeDuplicateCueTimes();
+  if(duplicateRemovals>0){
+    toast('Duplicated will be removed and Sync to the device');
   }
   setSyncButtonsBusy(true);
   try{
