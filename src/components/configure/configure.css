@@ -163,6 +163,14 @@
 #page-configure .cfg-dosearc{fill:none;stroke:var(--c);stroke-width:7;stroke-linecap:round}
 #page-configure .cfg-dialhint{font-size:11px;color:var(--muted);text-align:center;padding:4px 8px 10px;line-height:1.5}
 #page-configure .cfg-dialhint b{color:var(--ink);font-weight:600}
+/* last synced schedule: loading / nothing synced yet / when it was synced / could not be read */
+#page-configure .cfg-syncstate{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin:6px 8px 2px;padding:8px 12px;border:1px solid var(--faint);border-radius:10px;font-size:12px;line-height:1.45;color:var(--muted);text-align:center}
+#page-configure .cfg-syncstate small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
+#page-configure .cfg-syncstate[data-tone=ok]{color:var(--ink);border-color:rgba(93,202,165,.35)}
+#page-configure .cfg-syncstate[data-tone=warn]{color:var(--ink);border-color:rgba(228,103,79,.55)}
+#page-configure .cfg-syncstate[aria-busy=true]{animation:cfg-syncpulse 1.4s ease-in-out infinite}
+@keyframes cfg-syncpulse{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){#page-configure .cfg-syncstate[aria-busy=true]{animation:none}}
 #page-configure .cfg-rail{display:flex;flex-direction:column;gap:2px}
 #page-configure .cfg-hrow{display:flex;align-items:center;gap:11px;padding:10px;border-radius:12px;background:none;border:1px solid transparent;text-align:left;width:100%;color:var(--ink)}
 #page-configure .cfg-hrow:hover{background:var(--panel2)}

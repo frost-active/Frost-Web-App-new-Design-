@@ -1,5 +1,5 @@
 import { clamp, unitFor } from './format';
-import type { CfgCategory, CfgGroup, ConfigureBridge, ConfigureView, PomoField } from './types';
+import type { CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureView, PomoField } from './types';
 
 /* ============================================================================
    The My day model.
@@ -67,7 +67,7 @@ export type Habit = {
 };
 
 export type Rec = { done: number; streak: number; best: number; log: number[]; streakDays: number; st: 'active' | 'formed'; a0: number };
-export type HabitVM = Habit & { done: number; streak: number; best: number; log: number[]; streakDays: number; formed: boolean; audioId: string | null; a0: number };
+export type HabitVM = Habit & { done: number; streak: number; best: number; log: number[]; streakDays: number; formed: boolean; audioId: string | null; a0: number; day: number; dayTotal: number };
 export type Person = { n: string; p: number; v: number };
 export type Challenge = { id: number; hk: string; len: number; start: number; people: Person[] };
 export type Track = { id: string; name: string; size: number; type: string; added: number; dataUrl?: string };
@@ -90,20 +90,37 @@ export type Snapshot = {
   day: number;
   room: number;
   medCount: number;
+  /** loading / empty / ready / error for the last synced schedule */
+  sync: CfgSyncState;
 };
 
 export const displayName = (h: { label: string; name: string }): string => h.label || h.name;
 export const streakOf = (h: { streak: number; done: number; target: number }): number => h.streak + (h.done >= h.target ? 1 : 0);
-export const dayOf = (h: { streak: number; done: number; target: number; streakDays: number }): number => Math.min(h.streakDays, streakOf(h) + 1);
+/** the Day N shown on the dial and in Your Habits: calendar days since the last sync, 1-based (see syncDay) */
+export const dayOf = (h: { day: number }): number => h.day;
 
 /* ---------- day arithmetic (whole local calendar days) ---------- */
 const dayNumber = (d: Date): number => Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAYMS);
+
+/** Day N of M for one habit, counted from the last sync (latest configHistory entry): the number of calendar dates
+ *  between that sync and today, plus one, kept within 1..M. M is the habit's streak length in that same entry.
+ *  A habit that is not in that entry (added since) starts at Day 1 of its own streak length. */
+function syncDay(id: string, ownDays: number, last: ConfigureView['lastSync'], now: Date): { day: number; total: number } {
+  const total = last && last.habitIds?.includes(id) && last.streakDays[id] > 0 ? Math.round(last.streakDays[id]) : ownDays;
+  if (!last || (last.habitIds && !last.habitIds.includes(id))) return { day: 1, total };
+  const elapsed = dayNumber(now) - dayNumber(new Date(last.at));
+  return { day: Math.min(total, Math.max(1, elapsed + 1)), total };
+}
 
 /* ---------- habits, derived from the live device schedule ---------- */
 const occurrences = (cat: CfgCategory, gidx: number): number[] => cat.gi ? cat.gi.map((g, i) => g === gidx ? i : -1).filter((i) => i >= 0) : [];
 
 export function deriveHabits(view: ConfigureView, removed: ReadonlySet<string>, added: ReadonlySet<string>): Habit[] {
   const out: Habit[] = [];
+  // A schedule that has been synced shows exactly the habits that were on the list when it was synced
+  // (plus any added since); before the first sync only what has been added here shows.
+  const synced = view.syncedIds ? new Set(view.syncedIds) : null;
+  const shown = (id: string): boolean => added.has(id) || (synced ? synced.has(id) : view.synced);
   view.cats.forEach((cat) => {
     const color = `var(${cat.color})`;
     if ((cat.k === 'meds' || cat.k === 'custom') && cat.groups) {
@@ -114,7 +131,7 @@ export function deriveHabits(view: ConfigureView, removed: ReadonlySet<string>, 
         const id = `${cat.k}:${gid}`;
         // Same rule as the simple reminders: a pre-existing (factory-default) medicine or
         // habit stays off the dial until it's been synced for real or added in this browser.
-        if (!view.synced && !added.has(id)) return;
+        if (!shown(id)) return;
         const times = occ.map((i) => cat.times[i]);
         out.push({
           id, k: cat.k, gid, name: cat.label, label: group.name || '', unit: UNITS[cat.k], color,
@@ -128,7 +145,7 @@ export function deriveHabits(view: ConfigureView, removed: ReadonlySet<string>, 
     // Before anything has ever been synced from the real device/cloud, the factory-default
     // reminders stay off the dial until the person adds them here — a genuinely synced
     // schedule (or a reminder they've explicitly added in this browser) always shows.
-    if (!view.synced && !added.has(cat.k)) return;
+    if (!shown(cat.k)) return;
     if (removed.has(cat.k) && !cat.on) return;
     const times = cat.times.slice();
     const target = cat.k === 'water' ? Math.max(1, Math.round(cat.goal ?? 2000))
@@ -186,18 +203,22 @@ export class MyDayStore {
   private cache: { view: ConfigureView; version: number; snap: Snapshot } | null = null;
   private unsubscribe: () => void;
   private timer: number;
+  private restoreSeen = 0;
 
   constructor(readonly bridge: ConfigureBridge, private uid: string) {
     this.T = load(uid) ?? blank();
+    // the schedule asks the store which habits are on the list whenever it syncs, so a sync carries exactly those
+    bridge.registerHabitIds(() => this.habitsNow().map((h) => h.id));
     this.roll();
     // cfgAddedIds lives only in legacy.ts's in-memory state, so it starts empty on every
     // page load — replay what this browser already knows was added, or it would vanish.
     this.T.added.forEach((id) => this.bridge.markAdded(id));
     this.syncAcknowledgements();
     this.unsubscribe = bridge.subscribe(() => {
+      const adopted = this.adoptSynced();
       const rolled = this.roll();
       this.syncAcknowledgements();
-      if (rolled) this.commit();
+      if (rolled || adopted) this.commit();
       else this.emit();
     });
     this.timer = window.setInterval(() => {
@@ -214,6 +235,24 @@ export class MyDayStore {
   private save(): void { try { localStorage.setItem(storageKey(this.uid), JSON.stringify(this.T)); } catch { /* storage full or blocked */ } }
   private commit(): void { this.version++; this.save(); this.emit(); }
   toast(message: string): void { this.bridge.toast(message); }
+
+  /** The last synced schedule has just been (re)loaded, so what is on screen is exactly that. Whatever else this
+   *  browser remembered — habits added or deleted but never synced — is an unsynced draft and is dropped, and each
+   *  habit's streak length is taken from its synced validity window rather than from this browser's own record. */
+  private adoptSynced(): boolean {
+    const view = this.bridge.getView();
+    if (view.restoreToken === this.restoreSeen) return false;
+    this.restoreSeen = view.restoreToken;
+    if (!view.syncedIds) return false;
+    const synced = new Set(view.syncedIds);
+    this.T.added = this.T.added.filter((id) => synced.has(id));
+    this.T.removed = this.T.removed.filter((id) => !synced.has(id));
+    Object.entries(view.syncedStreakDays).forEach(([id, days]) => {
+      if (synced.has(id)) this.rec(id).streakDays = clamp(Math.round(days), FORM_MIN, FORM_MAX);
+    });
+    this.save();
+    return true;
+  }
 
   /* ---------- tracker records ---------- */
   private rec(id: string): Rec {
@@ -288,9 +327,11 @@ export class MyDayStore {
     const habits: HabitVM[] = deriveHabits(view, removed, added).map((h) => {
       const r = this.T.rec[h.id];
       const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today);
+      const own = r?.streakDays ?? FORM_DEFAULT;
+      const { day, total } = syncDay(h.id, own, view.lastSync, new Date());
       return {
         ...h, done: Math.min(r?.done ?? 0, h.target), streak: historicalStreak ?? r?.streak ?? 0, best: r?.best ?? 0, log: r?.log ?? [],
-        streakDays: r?.streakDays ?? FORM_DEFAULT, formed: r?.st === 'formed', audioId: this.T.audio[h.id] ?? null, a0: r?.a0 ?? this.T.today,
+        streakDays: own, formed: r?.st === 'formed', audioId: this.T.audio[h.id] ?? null, a0: r?.a0 ?? this.T.today, day, dayTotal: total,
       };
     });
     const onDial = habits.filter((h) => !h.parked);
@@ -304,7 +345,7 @@ export class MyDayStore {
     const snap: Snapshot = {
       habits, onDial, selected, cueIdx, dnd: view.dnd, dndOn: view.dndOn, nowH: view.nowH, today: view.today, pomo: view.pomo,
       challenges: this.T.ch, library: this.T.library, day: this.T.today, room: Math.max(0, MAX_DIAL - onDial.length),
-      medCount: habits.filter((h) => h.k === 'meds').length,
+      medCount: habits.filter((h) => h.k === 'meds').length, sync: view.sync,
     };
     this.cache = { view, version: this.version, snap };
     return snap;

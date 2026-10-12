@@ -4,6 +4,7 @@ import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFi
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
 import { ensureDeviceBindingMatchesUser, saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
+import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
 /* Clock toolbar — Sync Now on the top-right of the dial (desktop + mobile) */
@@ -199,7 +200,13 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
 
 <button class="aura-fab" id="auraFab" aria-label="Open Aura assistant"><span class="spark">✦</span></button>`;
 
+/* Window listeners from an earlier mount (sign out, sign back in) outlive their DOM. The ones that load or
+   report the synced schedule check that they belong to the mount that is on screen now. */
+let frostMountGeneration = 0;
+
 export function mountFrost(root: HTMLElement, authenticatedUser?: {displayName?: string|null; email?: string|null; photoURL?: string|null; uid?: string}) {
+  const mountGeneration = ++frostMountGeneration;
+  const isCurrentMount = () => mountGeneration === frostMountGeneration;
   root.innerHTML = frostMarkup;
 
 /* ================= shared state ================= */
@@ -281,7 +288,7 @@ function buildCATS(J){
     { k:'custom', label:'Habit', color:'--c-custom', src:'custom', type:'ev', on:R.custom.enabled, dur:1,
       groups:R.custom.events.map((e, idx)=>({
         name:e.label ?? '',
-        times:[(Number(e.h)||0)+(Number(e.m)||0)/60],
+        times:Array.isArray(e.times)&&e.times.length?e.times.map(t=>(Number(t.h)||0)+(Number(t.m)||0)/60):[(Number(e.h)||0)+(Number(e.m)||0)/60],
         days:dayNums(e.days || (e.type === 'absolute' ? [] : ['sun','mon','tue','wed','thu','fri','sat'])),
         enabled:e.enabled !== false,
         dur:(e.show_ms || 60000)/60000,
@@ -310,7 +317,7 @@ function buildCATS(J){
         ? J.pomodoro.laps.map(l => (Number(l.sh)||0) + (Number(l.sm)||0)/60)
         : [pomoBounds.start],
       dur:Math.max(1, Math.round((pomoBounds.end-pomoBounds.start)*60)),
-      days:[0,1,2,3,4,5,6] },
+      days:Array.isArray(J.pomodoro.days)&&J.pomodoro.days.length?dayNums(J.pomodoro.days):[0,1,2,3,4,5,6] },
   ];
 }
 function materialise(category){
@@ -436,6 +443,43 @@ let firmwareUpdateAvailable=false;
 let firmwareInfoUnsubscribe:()=>void=()=>undefined;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
+/* ---- the last synced schedule (what the database holds) ----
+   syncedSig / lastDocSig: signatures of the schedule that was last loaded from, or successfully saved to,
+   the database — anything on screen that differs from syncedSig is an edit that has not been synced. */
+let syncedSig='', lastDocSig='';
+let cfgSyncedHabitIds=null;      // habits on the list when it was synced (null: nothing synced yet)
+let cfgSyncedStreakDays={};      // streak length per synced habit, from its synced validity window
+let cfgRestoreToken=0;           // bumps whenever the synced schedule is (re)loaded into the editor
+let cfgHabitIds=null;            // () => ids of the habits on the list, registered by the My day store
+let cfgLoad={status:'loading',message:''};   // loading / empty / ready / error — pushed in by the dashboard host
+let cfgLastSyncedAt=null;        // ms since epoch of the last successful sync (Aura and account)
+let cfgSyncFailed=false;         // the latest Sync attempt did not complete
+let cfgRestoreError='';          // the saved schedule exists but could not be read
+/* ---- day counter ----
+   The latest configHistory entry (by its sync timestamp) says when the schedule was last synced and how long each
+   habit's streak is. cfgDayLocal is the sync that has just succeeded here, until the history listing reports it. */
+let cfgDay=null;                 // {at, habitIds, streakDays, source} of the latest history entry
+let cfgDayLocal=null;            // same shape, for a sync made in this session
+function cfgDayFrom(config,at){
+  try{
+    const model=syncedConfigToModel(config);
+    return {at, habitIds:model.habitIds, streakDays:model.streakDays};
+  }catch(error){
+    return {at, habitIds:null, streakDays:{}};   // an unreadable entry still dates the sync; each habit then falls back to its own streak length
+  }
+}
+function cfgRefreshDay(){
+  let best=null;
+  (storedConfigHistory||[]).forEach(entry=>{
+    const at=entry&&entry.syncedAt instanceof Date?entry.syncedAt.getTime():NaN;
+    if(Number.isFinite(at)&&(!best||at>best.at))best={at,config:entry.config,entry};
+  });
+  if(!best){cfgDay=null;}
+  else if(!cfgDay||cfgDay.source!==best.entry||cfgDay.at!==best.at){cfgDay={...cfgDayFrom(best.config,best.at),source:best.entry};}
+  if(cfgDayLocal&&best&&best.at>=cfgDayLocal.at)cfgDayLocal=null;
+}
+function configSig(){return stableStringify(toDeviceJSON({includeUiMeta:true}));}
+function hasUnsyncedEdits(){return syncedSig!==''&&configSig()!==syncedSig;}
 let storedStatistics:DeviceStatistics[]=[];
 let storedConfigHistory=[];
 /* Every place fresh statistics land — an explicit Sync on the Statistics tab, or the
@@ -491,18 +535,48 @@ function syncedCategories(){
   }).filter(Boolean);
 }
 
+/* Loading / nothing synced yet / ready / could not be read — pushed in by the dashboard host (HomeScreen). */
+window.addEventListener('frost-device-config-status',event=>{
+  if(!isCurrentMount())return;
+  const detail=(event as CustomEvent<{status?:string;lastSyncedAt?:number|null;message?:string}>).detail||{};
+  cfgLoad={status:['loading','empty','ready','error'].includes(detail.status)?detail.status:'loading',message:String(detail.message||'')};
+  if(Number.isFinite(detail.lastSyncedAt))cfgLastSyncedAt=detail.lastSyncedAt;
+  notifyConfigure();
+});
+/* The last successfully synced configuration, loaded from the database on every visit (login, refresh, or another
+   device syncing). It replaces the schedule completely — the person sees exactly what was synced, and every field in
+   the editor is filled from it — but it never overwrites edits that have not been synced yet. */
 window.addEventListener('frost-device-config',event=>{
-  if(liveConfigSynced)return;
+  if(!isCurrentMount())return;
   const saved=(event as CustomEvent<{config?: typeof defaultConfig}>).detail?.config;
   if(!saved)return;
+  const docSig=stableStringify(saved);
+  if(docSig===lastDocSig)return;   // the same saved schedule again (a goal / DND update on the device, or our own sync coming back)
+  if(hasUnsyncedEdits())return;
+  let model,nextCats;
+  try{
+    model=syncedConfigToModel(saved);
+    nextCats=buildActiveCategories(model.raw);
+  }catch(error){
+    console.error('Unable to read the synced FROST configuration.',error);
+    cfgRestoreError='Your last synced schedule is saved, but it could not be read.';
+    notifyConfigure();
+    return;
+  }
+  cfgRestoreError='';
   const prevSel=sel?{k:sel.k,i:sel.i,id:selectedGroupId()}:null;
-  const restored=structuredClone(saved);
   Object.keys(RAW).forEach(key=>delete RAW[key]);
-  Object.assign(RAW,restored);
-  CATS=buildActiveCategories(RAW);
+  Object.assign(RAW,model.raw);
+  CATS=nextCats;
   syncPomo();
   { const _pb=pomoSessionBounds(RAW.pomodoro); pomoFrom=_pb.start; pomoTo=_pb.end; }
   device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
+  Object.keys(cfgStreakWindows).forEach(id=>delete cfgStreakWindows[id]);
+  Object.assign(cfgStreakWindows,model.streakWindows);
+  cfgSyncedHabitIds=model.habitIds;
+  cfgSyncedStreakDays=model.streakDays;
+  cfgRestoreToken++;
+  cfgSyncFailed=false;
   syncedConfigAvailable=true;
   // Re-point the selection at the same event in the freshly loaded data (indices may have shifted)
   sel=prevSel?{k:prevSel.k,i:prevSel.i}:null;
@@ -513,8 +587,9 @@ window.addEventListener('frost-device-config',event=>{
     if(occ>=0)sel.i=occ;
   }
   normalizeSelection();
-  if(page==='configure')renderConfigure();
+  renderConfigure();   // also hands the My day store the reloaded schedule
   if(page==='device')renderDevice();
+  syncedSig=configSig();lastDocSig=docSig;
 });
 window.addEventListener('frost-device-config-saved',()=>{
   syncedConfigAvailable=true;
@@ -522,6 +597,7 @@ window.addEventListener('frost-device-config-saved',()=>{
 });
 window.addEventListener('frost-device-config-history',event=>{
   storedConfigHistory=(event as CustomEvent<{entries?:Array<{config:typeof defaultConfig;syncedAt:Date}>}>).detail?.entries||[];
+  cfgRefreshDay();notifyConfigure();
   if(page==='stats')renderStats();
 });
 window.addEventListener('frost-device-dnd-status',event=>{
@@ -635,7 +711,13 @@ let cfgVersion=0, cfgView=null;
    never asked for) stays out of the exported JSON, even though it still lives in RAW. */
 const cfgAddedIds=new Set();
 function cfgMarkAdded(id){ cfgAddedIds.add(id); }
-function cfgVisible(id){ return syncedConfigAvailable || cfgAddedIds.has(id); }
+/* A habit is part of the schedule (and of the exported JSON) only when it is on the person's habit list. */
+function cfgVisible(id){
+  if(cfgHabitIds){
+    try{ return cfgHabitIds().includes(id); }catch(error){ console.error('Unable to read the habit list.',error); }
+  }
+  return syncedConfigAvailable || cfgAddedIds.has(id);
+}
 /* Device-JSON validity window per reminder (id = cat.k, or `${cat.k}:${gid}` for medicine/habit
    groups), pushed from the My day tracker whenever a streak length, active days, or a custom
    habit's date changes. Purely a JSON-export concern — never touches CATS/RAW or the dial. */
@@ -689,7 +771,13 @@ function getConfigureView(){
     version:cfgVersion, cats:CATS, sel:sel?{k:sel.k,i:sel.i}:null,
     nowH:NOW_H, dnd:[DND[0],DND[1]], dndOn:Boolean(dndOn),
     pomo:{focus:RAW.pomodoro.focus_min,brk:RAW.pomodoro.break_min,cycles:RAW.pomodoro.cycles},
-    today, synced:syncedConfigAvailable, ackToday, ackHistory
+    today, synced:syncedConfigAvailable, ackToday, ackHistory,
+    syncedIds:cfgSyncedHabitIds, restoreToken:cfgRestoreToken, syncedStreakDays:cfgSyncedStreakDays,
+    lastSync:(()=>{const d=cfgDayLocal&&(!cfgDay||cfgDayLocal.at>cfgDay.at)?cfgDayLocal:cfgDay;return d?{at:d.at,habitIds:d.habitIds,streakDays:d.streakDays}:null;})(),
+    sync:{
+      status:cfgRestoreError?'error':(cfgLoad.status==='empty'&&cfgLastSyncedAt)?'ready':cfgLoad.status,
+      lastSyncedAt:cfgLastSyncedAt, failed:cfgSyncFailed, message:cfgRestoreError||cfgLoad.message
+    }
   };
   return cfgView;
 }
@@ -982,7 +1070,12 @@ const configureBridge={
   setDuration:cfgSetDuration, setRange:cfgSetRange, setIntervalDays:cfgSetIntervalDays, setWaterGoal:cfgSetWaterGoal, pomodoro:cfgPomodoro,
   setLabel:cfgSetLabel, setMedDate:cfgSetMedDate, toggleDay:cfgToggleDay, setCustomMode:cfgSetCustomMode, setCustomDate:cfgSetCustomDate,
   setEnabled:cfgSetEnabled, addTemplate:cfgAddTemplate, addMedicine:cfgAddMedicine, addCustom:cfgAddCustom, deleteGroup:cfgDeleteGroup,
-  setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded
+  setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded,
+  registerHabitIds:provider=>{cfgHabitIds=provider;},
+  retryLoad:()=>{
+    cfgLoad={status:'loading',message:''};cfgRestoreError='';notifyConfigure();
+    window.dispatchEvent(new CustomEvent('frost-device-config-retry'));
+  }
 };
 
 /* ================= STATISTICS ================= */
@@ -1458,6 +1551,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   // ── custom events ──
   const cus=cat('custom');
   const events=[];
+  const uiCustom=[];   // cloud copy only: which custom habits are one-off dates
   (cus && cus.groups ? cus.groups : []).forEach((group, groupIndex)=>{
     if(!cfgVisible(`custom:${group.id ?? groupIndex}`)) return;   // factory-default sample data, never added through this UI
     const occIndices = cus.gi ? cus.gi.map((g,i)=>g===groupIndex?i:-1).filter(i=>i>=0) : [];
@@ -1471,6 +1565,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     const displayMs = Math.round((group.dur != null ? group.dur : (cus.dur || 1)) * 60000);
     const isAbsolute = group.type === 'absolute';
     const groupId = group.id || `custom_${String(events.length+1).padStart(3,'0')}`;
+    uiCustom.push({ id: groupId, type: isAbsolute ? 'absolute' : 'recurring', date: isAbsolute ? (group.date || localISODate()) : null });
     // Specific (one-off) date: a single-day window. Events (recurring): this habit's own streak length.
     const win = isAbsolute
       ? { start: group.date || localISODate(), end: group.date || localISODate() }
@@ -1571,6 +1666,21 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     break_counter: rawPomo.break_counter ? {...defaultCounter, ...rawPomo.break_counter} : {...defaultCounter}
   };
 
+  // ── web-app-only extras (cloud copy only, never sent to Aura): they let the saved schedule come back exactly as configured ──
+  let uiMeta=null;
+  if(includeUiMeta){
+    let habitIds=null;
+    if(cfgHabitIds){ try{ habitIds=cfgHabitIds(); }catch(error){ console.error('Unable to read the habit list.',error); } }
+    const waterCat=cat('water');
+    uiMeta={
+      v: 1,
+      ...(habitIds ? { habits: habitIds } : {}),
+      goal_ml: waterCat && Number.isFinite(waterCat.goal) ? waterCat.goal : 2000,
+      pomodoro: { cycles: rawPomo.cycles != null ? rawPomo.cycles : 4 },
+      custom: uiCustom
+    };
+  }
+
   return {
     _meta: {
       schema_ver: 6,
@@ -1587,7 +1697,8 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       custom
     },
     audio,
-    pomodoro
+    pomodoro,
+    ...(uiMeta ? { ui_meta: uiMeta } : {})
   };
 }
 function snapSig(c){return `${c.on?'on':'off'} · ${c.times.length}× · ${c.dur}m · ${c.times.map(t=>t.toFixed(2)).join(',')}`;}
@@ -1632,7 +1743,15 @@ async function syncScheduleToDevice(){
     toast('Sign in to your account before syncing this device.');
     return;
   }
-  const ownershipCheck = await ensureDeviceBindingMatchesUser(deviceMac, authenticatedUser.uid);
+  let ownershipCheck;
+  try{
+    ownershipCheck = await ensureDeviceBindingMatchesUser(deviceMac, authenticatedUser.uid);
+  }catch(error){
+    console.error('Unable to verify the FROST device binding.',error);
+    cfgSyncFailed=true; notifyConfigure();
+    toast('Could not verify your device. Check your connection and try Sync again.');
+    return;
+  }
   if(!ownershipCheck.allowed){
     toast(ownershipCheck.message);
     return;
@@ -1643,20 +1762,33 @@ async function syncScheduleToDevice(){
   }
   setSyncButtonsBusy(true);
   try{
+    const sentSnapshot=snapshot();
     const syncedConfig=toDeviceJSON();
-    const cloudConfig=toDeviceJSON({includeUiMeta:true});
+    const cloudConfig=JSON.parse(JSON.stringify(toDeviceJSON({includeUiMeta:true})));   // the database rejects `undefined`
     await bleClient.sendJsonConfiguration(syncedConfig);
-    liveConfigSynced=true;
-    device=snapshot();
-    refreshDirty();
-    toast('Schedule synced to Aura');
-    if(deviceMac&&authenticatedUser?.uid&&authenticatedUser.email){
-      void saveDeviceConfig(deviceMac,cloudConfig,authenticatedUser.uid,authenticatedUser.email);
+    // It is on Aura now — but it only counts as synced once it is saved to the account as well.
+    const saved=await saveDeviceConfig(deviceMac,cloudConfig,authenticatedUser.uid,authenticatedUser.email||'');
+    if(!saved.ok){
+      // Keep showing the previous successful sync: nothing below the "synced" line is updated.
+      cfgSyncFailed=true;
+      toast(saved.message);
+    }else{
+      liveConfigSynced=true;
+      device=sentSnapshot;
+      cfgSyncFailed=false;
+      cfgLastSyncedAt=Date.now();
+      if(Array.isArray(cloudConfig.ui_meta?.habits))cfgSyncedHabitIds=cloudConfig.ui_meta.habits;
+      syncedSig=lastDocSig=stableStringify(cloudConfig);
+      cfgDayLocal={...cfgDayFrom(cloudConfig,cfgLastSyncedAt),source:null};   // a new sync restarts every habit's counter at Day 1
+      refreshDirty();
+      toast('Schedule synced to Aura');
     }
   }catch(error){
+    cfgSyncFailed=true;
     toast(error instanceof Error?error.message:'Configuration upload failed');
   }finally{
     setSyncButtonsBusy(false);
+    notifyConfigure();
     if(page==='device') renderDevice();
   }
 }

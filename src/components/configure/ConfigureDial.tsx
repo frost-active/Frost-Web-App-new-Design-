@@ -153,13 +153,13 @@ export default function ConfigureDial({ snap, store }: Props) {
             <text x={CX} y={CY - 54} className={cn('ctrName')}>{shorten(displayName(sel), 18)}</text>
             <text x={CX} y={CY + 8} className={cn('ctrBig')}>{met ? '✓' : sel.done}</text>
             <text x={CX} y={CY + 32} className={cn('ctrSub')}>{(met ? 'ALL ' : 'OF ') + sel.target + ' ' + unitFor(sel.target, sel.unit).toUpperCase()}</text>
-            <text x={CX} y={CY + 68} className={cn('ctrStreak')}>{`day ${currentDay} of ${sel.streakDays}`}</text>
+            <text x={CX} y={CY + 68} className={cn('ctrStreak')}>{`day ${currentDay} of ${sel.dayTotal}`}</text>
           </>
         );
       })() : (
         <>
-          <text x={CX} y={CY} className={cn('ctrName')}>No habits yet</text>
-          <text x={CX} y={CY + 24} className={cn('ctrSub')}>ADD ONE ON THE RIGHT</text>
+          <text x={CX} y={CY} className={cn('ctrName')}>{snap.sync.status === 'loading' ? 'Loading your day…' : 'No habits yet'}</text>
+          {snap.sync.status !== 'loading' && <text x={CX} y={CY + 24} className={cn('ctrSub')}>ADD ONE ON THE RIGHT</text>}
         </>
       )}
     </svg>

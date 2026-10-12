@@ -35,6 +35,17 @@ export type CfgCategory = {
   everyDays?: number;
 };
 
+/** Where the "last synced" schedule stands: what the Configure tab is showing, and why. */
+export type CfgSyncState = {
+  /** loading: reading the saved schedule · empty: nothing has ever been synced · ready: showing the last synced schedule · error: it could not be read */
+  status: 'loading' | 'empty' | 'ready' | 'error';
+  /** ms since epoch of the last successful sync (Aura and account both updated), when known */
+  lastSyncedAt: number | null;
+  /** the latest Sync attempt did not complete — the schedule that counts is still the last successful one */
+  failed: boolean;
+  message: string;
+};
+
 export type ConfigureView = {
   version: number;
   cats: CfgCategory[];
@@ -51,6 +62,15 @@ export type ConfigureView = {
   ackToday: Record<string, number>;
   /** actual device acknowledgements by date and habit/category key */
   ackHistory: Record<string, Record<string, number>>;
+  /** the habits that were on the list when the schedule was last synced (null while nothing has been synced) */
+  syncedIds: string[] | null;
+  /** changes every time the last synced schedule is (re)loaded into the editor */
+  restoreToken: number;
+  /** streak length of each synced habit, worked out from its synced validity window */
+  syncedStreakDays: Record<string, number>;
+  /** when the schedule was last synced (latest configHistory entry) and each habit's streak length in that entry; drives the Day N counter */
+  lastSync: { at: number; habitIds: string[] | null; streakDays: Record<string, number> } | null;
+  sync: CfgSyncState;
 };
 
 export type PomoField = 'focus_min' | 'break_min' | 'cycles';
@@ -91,4 +111,9 @@ export type ConfigureBridge = {
   /** returns the new habit's group id */
   addCustom: () => string | null;
   deleteGroup: (k: string, gid: string) => void;
+
+  /** the My day store tells the schedule which habits are on the list, so a sync only ever carries those */
+  registerHabitIds: (provider: () => string[]) => void;
+  /** try to load the last synced schedule again after it could not be read */
+  retryLoad: () => void;
 };

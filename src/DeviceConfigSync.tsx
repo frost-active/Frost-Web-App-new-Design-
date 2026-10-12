@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
+import { useCallback, useEffect, useState } from 'react';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
 import { firebaseDb } from './firebase';
 import { sanitizeMac } from './components/DeviceBinding';
 import type { DeviceConfig } from './config/defaultConfig';
@@ -60,46 +60,55 @@ export async function saveDndStatus(uid: string, macAddress: string | null, dndE
   await setDoc(deviceDocument(uid, resolvedMac), { dndEnabled: Boolean(dndEnabled) }, { merge: true });
 }
 
-export async function saveDeviceConfig(macAddress: string, config: DeviceConfig, uid: string, email: string): Promise<void> {
+export type SaveDeviceConfigResult = { ok: true } | { ok: false; message: string };
+
+/** How long a save may take before it is reported as failed instead of hanging (for example when the connection dropped). */
+const SAVE_TIMEOUT_MS = 20000;
+
+/**
+ * Saves the configuration that was just sent to the device as the new "last synced" configuration.
+ * Resolves `ok: true` only once the server has committed it; on any failure the previously saved
+ * configuration is left exactly as it was, so the app keeps showing the last successful sync.
+ */
+export async function saveDeviceConfig(macAddress: string, config: DeviceConfig, uid: string, email: string): Promise<SaveDeviceConfigResult> {
   const sanitizedMac = sanitizeMac(macAddress);
   try {
     const ownershipCheck = await ensureDeviceBindingMatchesUser(macAddress, uid);
-    if (!ownershipCheck.allowed) {
-      window.dispatchEvent(new CustomEvent<FrostToastDetail>('frost:toast', {
-        detail: { type: 'warning', message: ownershipCheck.message },
-      }));
-      return;
-    }
+    if (!ownershipCheck.allowed) return { ok: false, message: ownershipCheck.message };
 
-    const currentWrite = setDoc(configDocument(uid, macAddress), {
-      macAddress,
-      config,
-      lastSyncedAt: serverTimestamp(),
-      lastSyncedBy: uid,
-      lastSyncedByEmail: email,
-    }, { merge: true });
-    // Keep each saved schedule so Statistics can count slots active at their scheduled time.
-    const historyWrite = addDoc(historyCollection(uid, macAddress), {
-      macAddress,
-      sanitizedMac,
-      config,
-      syncedBy: uid,
-      syncedByEmail: email,
-      syncedAt: serverTimestamp(),
+    // One atomic commit: the current configuration and its history entry are stored together or not at all.
+    // Unlike a plain write, a transaction is never queued while offline, so success means the server has it.
+    const commit = runTransaction(firebaseDb, async (transaction) => {
+      transaction.set(configDocument(uid, macAddress), {
+        macAddress,
+        config,
+        lastSyncedAt: serverTimestamp(),
+        lastSyncedBy: uid,
+        lastSyncedByEmail: email,
+      });
+      // Keep each saved schedule so Statistics can count slots active at their scheduled time.
+      transaction.set(doc(historyCollection(uid, macAddress)), {
+        macAddress,
+        sanitizedMac,
+        config,
+        syncedBy: uid,
+        syncedByEmail: email,
+        syncedAt: serverTimestamp(),
+      });
     });
-    const results = await Promise.allSettled([currentWrite, historyWrite]);
-    const currentResult = results[0];
-    const historyResult = results[1];
-    if (currentResult.status === 'rejected') throw currentResult.reason;
-    window.dispatchEvent(new CustomEvent('frost-device-config-saved'));
-    if (historyResult.status === 'rejected') {
-      console.error('Unable to save the FROST device configuration history.', historyResult.reason);
+    commit.catch(() => undefined);   // a late failure after the timeout below has already been reported
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Saving the configuration timed out.')), SAVE_TIMEOUT_MS); });
+    try {
+      await Promise.race([commit, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
+    window.dispatchEvent(new CustomEvent('frost-device-config-saved'));
+    return { ok: true };
   } catch (error) {
     console.error('Unable to save the synced FROST device configuration.', error);
-    window.dispatchEvent(new CustomEvent<FrostToastDetail>('frost:toast', {
-      detail: { type: 'warning', message: "Synced to device, but couldn't save backup config" },
-    }));
+    return { ok: false, message: "Sent to Aura, but couldn't save it to your account. Press Sync again to retry." };
   }
 }
 
@@ -107,22 +116,32 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [dndEnabled, setDndEnabled] = useState<boolean>(false);
-  const [loading, setLoading] = useState(Boolean(macAddress));
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((count) => count + 1), []);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
     let cancelled = false;
+    let configLoaded = false;
     let unsubscribeConfig: (() => void) | undefined;
     let unsubscribeDevice: (() => void) | undefined;
     let latestConfigData: DeviceConfigDocument | undefined;
     let latestDeviceData: { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
 
+    const fail = (reason: unknown) => {
+      if (cancelled) return;
+      setConfig(null); setLastSyncedAt(null); setLoading(false);
+      setError(reason instanceof Error ? reason : new Error('Unable to load the saved device configuration.'));
+    };
+
     const withStoredDailyGoal = (baseConfig: DeviceConfig | null): DeviceConfig | null => {
       if (!baseConfig) return null;
       const persistedGoal = Number(latestDeviceData?.dailyGoalMl);
-      const goalMl = Number.isFinite(persistedGoal) && persistedGoal > 0 ? persistedGoal : 0;
+      // No separately saved goal: keep the one that was saved with the synced configuration.
+      if (!(Number.isFinite(persistedGoal) && persistedGoal > 0)) return baseConfig;
 
       return {
         ...baseConfig,
@@ -130,17 +149,20 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
           ...baseConfig.reminders,
           hydration: {
             ...baseConfig.reminders.hydration,
-            goal_ml: Math.max(0, Math.round(goalMl)) as any,
+            goal_ml: Math.max(0, Math.round(persistedGoal)) as any,
           },
         },
       } as DeviceConfig;
     };
 
     const applyConfigState = () => {
+      // The device document alone says nothing about the configuration: wait until it has answered too.
+      if (!configLoaded) return;
       if (!latestConfigData) {
         setConfig(null);
         setLastSyncedAt(null);
         setDndEnabled(false);
+        setError(null);
         setLoading(false);
         return;
       }
@@ -149,6 +171,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       setConfig(mergedConfig);
       setDndEnabled(Boolean(latestDeviceData?.dndEnabled));
       setLastSyncedAt(latestConfigData.lastSyncedAt instanceof Timestamp ? latestConfigData.lastSyncedAt.toDate() : null);
+      setError(null);
       setLoading(false);
     };
 
@@ -169,35 +192,31 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       }
 
       unsubscribeConfig = onSnapshot(configDocument(uid, resolvedMac), (snapshot) => {
+        if (!snapshot.exists() && snapshot.metadata.fromCache) {
+          // Nothing cached and no answer from the server yet (offline) is not the same thing as "never synced".
+          fail(new Error('You appear to be offline, so your last synced schedule could not be checked.'));
+          return;
+        }
+        configLoaded = true;
         latestConfigData = snapshot.data() as DeviceConfigDocument | undefined;
         applyConfigState();
-      }, (snapshotError) => {
-        setConfig(null); setLastSyncedAt(null); setLoading(false);
-        setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
-      });
+      }, fail);
 
       unsubscribeDevice = onSnapshot(deviceDocument(uid, resolvedMac), (snapshot) => {
         latestDeviceData = snapshot.data() as { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
         applyConfigState();
-      }, (snapshotError) => {
-        setConfig(null); setLastSyncedAt(null); setLoading(false);
-        setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
-      });
+      }, fail);
     };
 
-    void subscribe().catch((snapshotError: unknown) => {
-      if (cancelled) return;
-      setConfig(null); setLastSyncedAt(null); setLoading(false);
-      setError(snapshotError instanceof Error ? snapshotError : new Error('Unable to load the saved device configuration.'));
-    });
+    void subscribe().catch(fail);
     return () => {
       cancelled = true;
       unsubscribeConfig?.();
       unsubscribeDevice?.();
     };
-  }, [macAddress, uid]);
+  }, [macAddress, uid, attempt]);
 
-  return { config, lastSyncedAt, dndEnabled, loading, error };
+  return { config, lastSyncedAt, dndEnabled, loading, error, reload };
 }
 
 export function useDeviceConfigHistory(macAddress: string | null, uid: string) {

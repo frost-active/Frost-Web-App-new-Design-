@@ -23,7 +23,7 @@ export default function HomeScreen({ user }: { user: User }) {
   const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled } = useDeviceConfig(macAddress, user.uid);
+  const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled, loading: configLoading, error: configError, reload: reloadConfig } = useDeviceConfig(macAddress, user.uid);
   const storedConfigHistory = useDeviceConfigHistory(macAddress, user.uid);
 
   useEffect(() => {
@@ -51,6 +51,19 @@ export default function HomeScreen({ user }: { user: User }) {
       window.dispatchEvent(new CustomEvent('frost-device-config', { detail: { config: storedDeviceConfig } }));
     }
   }, [macAddress, storedDeviceConfig]);
+
+  // Tells the Configure tab whether the last synced schedule is loading, was never synced, is ready or could not be read.
+  useEffect(() => {
+    const status = storedDeviceConfig ? 'ready' : configError ? 'error' : configLoading ? 'loading' : 'empty';
+    window.dispatchEvent(new CustomEvent('frost-device-config-status', {
+      detail: { status, lastSyncedAt: lastSyncedAt?.getTime() ?? null, message: configError?.message ?? '' },
+    }));
+  }, [storedDeviceConfig, lastSyncedAt, configLoading, configError]);
+
+  useEffect(() => {
+    window.addEventListener('frost-device-config-retry', reloadConfig);
+    return () => window.removeEventListener('frost-device-config-retry', reloadConfig);
+  }, [reloadConfig]);
 
   useEffect(() => {
     const entries = storedConfigHistory.slice();

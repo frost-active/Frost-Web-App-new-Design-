@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import '../components/configure/configure.css';
 import ConfigureDial, { DialHint } from '../components/configure/ConfigureDial';
+import SyncStatus from '../components/configure/SyncStatus';
 import HabitRail from '../components/configure/HabitRail';
 import HabitEditor from '../components/configure/HabitEditor';
 import Challenges from '../components/configure/Challenges';
@@ -16,6 +17,7 @@ export function ConfigureClockPanel({ store }: Props) {
   return (
     <>
       <ConfigureDial snap={snap} store={store} />
+      <SyncStatus snap={snap} store={store} />
       <DialHint snap={snap} />
     </>
   );

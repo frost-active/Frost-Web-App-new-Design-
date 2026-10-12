@@ -19,6 +19,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
   const [libOpen, setLibOpen] = useState(false);
   useEffect(() => { setArmPark(null); setArmDelete(null); setLibOpen(false); }, [h?.id]);
 
+  if (snap.sync.status === 'loading' && !snap.habits.length) return null;   // the last synced schedule is on its way — nothing to add to yet
   if (addOpen || !snap.habits.length) return <AddHabitChooser snap={snap} store={store} canCancel={snap.habits.length > 0} onClose={onAddClose} />;
   if (!h) return null;
 

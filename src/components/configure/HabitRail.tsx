@@ -10,7 +10,7 @@ export default function HabitRail({ snap, store, addOpen, onAddOpen, onSelect }:
     <div className={cn('card')}>
       <h2>Your habits <span className={cn('r')}>{running} running</span></h2>
       {!snap.habits.length ? (
-        <p className={cn('empty')}>Nothing here yet. Add a habit and it appears on the dial straight away — you decide what it is, how often Aura asks, and how much counts as a day done.</p>
+        <p className={cn('empty')}>{snap.sync.status === 'loading' ? 'Loading your habits…' : 'Nothing here yet. Add a habit and it appears on the dial straight away — you decide what it is, how often Aura asks, and how much counts as a day done.'}</p>
       ) : (
         <>
           <div className={cn('rail')}>
