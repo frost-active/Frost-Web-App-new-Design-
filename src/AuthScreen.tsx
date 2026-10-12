@@ -1,13 +1,14 @@
 import { FormEvent, useState } from 'react';
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   updateProfile,
 } from 'firebase/auth';
 import { firebaseAuth, googleProvider } from './firebase';
 
-type AuthMode = 'login' | 'register';
+type AuthMode = 'login' | 'register' | 'reset';
 
 function authMessage(error: unknown): string {
   const code =
@@ -28,11 +29,20 @@ function authMessage(error: unknown): string {
     'auth/invalid-email':
       'Enter a valid email address.',
 
+    'auth/missing-email':
+      'Enter your email address first.',
+
+    'auth/user-not-found':
+      'No account was found for this email.',
+
     'auth/popup-closed-by-user':
       'Google sign-in was closed before it completed.',
 
     'auth/popup-blocked':
       'Your browser blocked the Google sign-in popup.',
+
+    'auth/network-request-failed':
+      'Network error. Check your connection and try again.',
 
     'auth/too-many-requests':
       'Too many attempts. Wait a moment and try again.',
@@ -131,11 +141,23 @@ export default function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Success message (used after the reset email is sent)
+  const [info, setInfo] = useState('');
+
+  // Switch between login / register / reset and clear any messages
+  const switchMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    setError('');
+    setInfo('');
+    setShowPassword(false);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     setBusy(true);
     setError('');
+    setInfo('');
 
     try {
       if (mode === 'login') {
@@ -145,7 +167,7 @@ export default function AuthScreen() {
           email.trim(),
           password
         );
-      } else {
+      } else if (mode === 'register') {
         // Validate name before creating account
         const trimmedName = name.trim();
 
@@ -167,6 +189,22 @@ export default function AuthScreen() {
         await updateProfile(userCredential.user, {
           displayName: trimmedName,
         });
+      } else {
+        // Forgot password: send a reset link to the email address
+        const trimmedEmail = email.trim();
+
+        if (!trimmedEmail) {
+          setError('Enter your email address first.');
+          setBusy(false);
+          return;
+        }
+
+        await sendPasswordResetEmail(firebaseAuth, trimmedEmail);
+
+        // Neutral wording: does not reveal whether the account exists
+        setInfo(
+          'If an account exists for this email, a password reset link has been sent. Check your inbox and spam folder.'
+        );
       }
     } catch (authError) {
       setError(authMessage(authError));
@@ -178,6 +216,7 @@ export default function AuthScreen() {
   const continueWithGoogle = async () => {
     setBusy(true);
     setError('');
+    setInfo('');
 
     try {
       await signInWithPopup(firebaseAuth, googleProvider);
@@ -280,19 +319,25 @@ export default function AuthScreen() {
           <div className="auth-heading">
 
             <p className="auth-kicker">
-              Welcome to Aura
+              {mode === 'reset'
+                ? 'Account recovery'
+                : 'Welcome to Aura'}
             </p>
 
             <h2>
               {mode === 'login'
                 ? 'Sign in to your day.'
-                : 'Create your Aura.'}
+                : mode === 'register'
+                  ? 'Create your Aura.'
+                  : 'Reset your password.'}
             </h2>
 
             <p>
               {mode === 'login'
                 ? 'Pick up exactly where your rhythm left off.'
-                : 'Set up your personal FROST command center.'}
+                : mode === 'register'
+                  ? 'Set up your personal FROST command center.'
+                  : 'Enter your email and we will send you a link to choose a new password.'}
             </p>
 
           </div>
@@ -300,40 +345,37 @@ export default function AuthScreen() {
 
           {/* =================================================
               LOGIN / REGISTER TABS
+              Hidden while resetting the password
           ================================================== */}
-          <div
-            className="auth-tabs"
-            role="tablist"
-            aria-label="Authentication mode"
-          >
-
-            <button
-              type="button"
-              className={mode === 'login' ? 'active' : ''}
-              onClick={() => {
-                setMode('login');
-                setError('');
-              }}
-              role="tab"
-              aria-selected={mode === 'login'}
+          {mode !== 'reset' && (
+            <div
+              className="auth-tabs"
+              role="tablist"
+              aria-label="Authentication mode"
             >
-              Sign in
-            </button>
 
-            <button
-              type="button"
-              className={mode === 'register' ? 'active' : ''}
-              onClick={() => {
-                setMode('register');
-                setError('');
-              }}
-              role="tab"
-              aria-selected={mode === 'register'}
-            >
-              Create account
-            </button>
+              <button
+                type="button"
+                className={mode === 'login' ? 'active' : ''}
+                onClick={() => switchMode('login')}
+                role="tab"
+                aria-selected={mode === 'login'}
+              >
+                Sign in
+              </button>
 
-          </div>
+              <button
+                type="button"
+                className={mode === 'register' ? 'active' : ''}
+                onClick={() => switchMode('register')}
+                role="tab"
+                aria-selected={mode === 'register'}
+              >
+                Create account
+              </button>
+
+            </div>
+          )}
 
 
           {/* =================================================
@@ -383,66 +425,122 @@ export default function AuthScreen() {
             </label>
 
 
-            {/* Password with show / hide eye toggle */}
-            <label>
-              Password
+            {/* ===============================================
+                PASSWORD
+                Hidden in reset mode
+            ================================================ */}
+            {mode !== 'reset' && (
+              <>
+                {/* Password with show / hide eye toggle */}
+                <label>
+                  Password
 
-              <div
-                className="auth-password-wrap"
-                style={{ position: 'relative' }}
+                  <div
+                    className="auth-password-wrap"
+                    style={{ position: 'relative' }}
+                  >
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(event) =>
+                        setPassword(event.target.value)
+                      }
+                      placeholder="At least 6 characters"
+                      autoComplete={
+                        mode === 'login'
+                          ? 'current-password'
+                          : 'new-password'
+                      }
+                      minLength={6}
+                      required
+                      style={{
+                        width: '100%',
+                        paddingRight: '44px',
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      className="auth-eye"
+                      onClick={() =>
+                        setShowPassword((prev) => !prev)
+                      }
+                      aria-label={
+                        showPassword
+                          ? 'Hide password'
+                          : 'Show password'
+                      }
+                      aria-pressed={showPassword}
+                      style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        opacity: 0.7,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                    </button>
+                  </div>
+                </label>
+
+                {/* Forgot password link (login mode only) */}
+                {mode === 'login' && (
+                  <div
+                    className="auth-forgot"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      marginTop: '-4px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="auth-link"
+                      onClick={() => switchMode('reset')}
+                      disabled={busy}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        color: 'inherit',
+                        font: 'inherit',
+                        fontSize: '0.875rem',
+                        textDecoration: 'underline',
+                        opacity: 0.8,
+                      }}
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+
+            {/* Success Message (reset email sent) */}
+            {info && (
+              <p
+                className="auth-info"
+                role="status"
+                style={{
+                  margin: 0,
+                  fontSize: '0.875rem',
+                  lineHeight: 1.5,
+                }}
               >
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(event) =>
-                    setPassword(event.target.value)
-                  }
-                  placeholder="At least 6 characters"
-                  autoComplete={
-                    mode === 'login'
-                      ? 'current-password'
-                      : 'new-password'
-                  }
-                  minLength={6}
-                  required
-                  style={{
-                    width: '100%',
-                    paddingRight: '44px',
-                  }}
-                />
-
-                <button
-                  type="button"
-                  className="auth-eye"
-                  onClick={() =>
-                    setShowPassword((prev) => !prev)
-                  }
-                  aria-label={
-                    showPassword
-                      ? 'Hide password'
-                      : 'Show password'
-                  }
-                  aria-pressed={showPassword}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    cursor: 'pointer',
-                    color: 'inherit',
-                    opacity: 0.7,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-                </button>
-              </div>
-            </label>
+                {info}
+              </p>
+            )}
 
 
             {/* Error Message */}
@@ -467,31 +565,74 @@ export default function AuthScreen() {
                 ? 'Working...'
                 : mode === 'login'
                   ? 'Enter Aura'
-                  : 'Create account'}
+                  : mode === 'register'
+                    ? 'Create account'
+                    : info
+                      ? 'Resend reset link'
+                      : 'Send reset link'}
 
               <span>→</span>
 
             </button>
 
+
+            {/* Back to sign in (reset mode only) */}
+            {mode === 'reset' && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => switchMode('login')}
+                  disabled={busy}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    font: 'inherit',
+                    fontSize: '0.875rem',
+                    textDecoration: 'underline',
+                    opacity: 0.8,
+                  }}
+                >
+                  ← Back to sign in
+                </button>
+              </div>
+            )}
+
           </form>
 
 
-          {/* Divider */}
-          <div className="auth-divider">
-            <span>or</span>
-          </div>
+          {/* =================================================
+              GOOGLE LOGIN
+              Hidden in reset mode
+          ================================================== */}
+          {mode !== 'reset' && (
+            <>
+              {/* Divider */}
+              <div className="auth-divider">
+                <span>or</span>
+              </div>
 
 
-          {/* Google Login */}
-          <button
-            className="auth-google"
-            type="button"
-            onClick={continueWithGoogle}
-            disabled={busy}
-          >
-            <GoogleIcon />
-            Continue with Google
-          </button>
+              {/* Google Login */}
+              <button
+                className="auth-google"
+                type="button"
+                onClick={continueWithGoogle}
+                disabled={busy}
+              >
+                <GoogleIcon />
+                Continue with Google
+              </button>
+            </>
+          )}
 
 
           {/* Legal */}

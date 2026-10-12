@@ -99,7 +99,7 @@ export default function QuickActions({
           onClick={onUpdate}
         >
           <span className="quick-icon">↻</span>
-          Update
+          Update Firmware
         </button>
       </div>
     </section>

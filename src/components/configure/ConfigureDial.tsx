@@ -169,10 +169,11 @@ export default function ConfigureDial({ snap, store }: Props) {
 export function DialHint({ snap }: { snap: Snapshot }) {
   const sel = snap.selected;
   return (
+    
     <p className={cn('dialhint')}>
-      {sel
+     {/* {sel
         ? <>Rim = <b>{displayName(sel)}’s {sel.streakDays}-day streak</b> · arcs = when Aura cues it · centre = today’s {sel.unit}, updated automatically each time you sync Statistics. Tap an arc to switch habit — the clock is read-only, edit times in the fields below.</>
-        : 'The dial is empty until you add a habit.'}
+        : 'The dial is empty until you add a habit.'} */}
     </p>
   );
 }

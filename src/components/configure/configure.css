@@ -99,7 +99,7 @@
 }
 #page-configure .cfg-daytoggle{display:flex;gap:6px;flex-wrap:wrap}
 #page-configure .cfg-dchip{flex:1;min-width:40px;text-align:center;padding:11px 4px;border-radius:12px;border:1px solid var(--faint);background:none;color:var(--muted);font:600 12px "DM Sans"}
-#page-configure .cfg-dchip[aria-pressed=true]{background:#E4674F;border-color:transparent;color:#fff}
+#page-configure .cfg-dchip[aria-pressed=true]{background:var(--sky);border-color:transparent;color:var(--navy)}
 #page-configure .cfg-mtimerow{display:flex;gap:7px}
 #page-configure .cfg-mtimerow input.cfg-minput{flex:1;min-width:0;padding:12px 10px;font-size:15px}
 #page-configure .cfg-mtimerow select.cfg-minput{flex:0 0 66px;padding:12px 4px 12px 8px;font-size:13px}

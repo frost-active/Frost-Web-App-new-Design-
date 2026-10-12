@@ -88,7 +88,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
         </>}
 
         {h.k === 'custom' && <>
-          <HabitName {...p} title="Label" placeholder="e.g. Happy Birthday" max={20} help="Shown wherever this habit appears · up to 20 characters" />
+          <HabitName {...p} title="Label" placeholder="e.g. Happy Birthday" max={20} showCount={false} help="Text to show on device" />
           <CueCount {...p} />
           <CueTimes {...p} title="Cue times" help="Drag each time slider in 15-minute steps, then choose AM or PM." />
           <CueDuration {...p} />
@@ -96,8 +96,8 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
           <Days {...p} />
         </>}
 
-        <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" count={(v) => `${v} days`}
-          help={`${h.streakDays} unbroken days forms ${h.label || h.name}. Lower it and a streak that already clears the new bar forms right away; raise it and nothing already formed is taken back.`}
+        <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" showCount={false}
+          help="How long you want to go unbroken with this habit"
           onCommit={(v) => store.setStreakDays(h, v)} />
       </div>
       <HabitActions {...p} armPark={armPark} armDelete={armDelete} setArmPark={setArmPark} setArmDelete={setArmDelete} />

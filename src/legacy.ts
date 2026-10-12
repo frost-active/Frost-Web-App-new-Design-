@@ -94,7 +94,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
   <!-- ============ CONFIGURE ============ -->
   <section id="page-configure">
     <div class="ptitle">My day</div>
-    <p class="psub">Every habit becomes an arc on the dial — that is when Aura cues it — and a loop on the rim — that is how far into its own streak you are, since each habit sets its own streak length. Challenge colleagues are simulated.</p>
+    <p class="psub">Every circle represents one habit configuration</p>
     <div class="cfg-daygrid">
       <div class="cfg-daycol">
         <div class="clockcard cfg-dialcard">
@@ -169,8 +169,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
           <div class="batt"><i style="--p:82%"></i></div>
           <span class="pill" id="dState">Offline</span>
           <button class="btn" id="dConnect">Connect</button></div>
-        <div class="drow"><div class="t"><p>Transport</p><small>Web Bluetooth (BLE 5.0) — schedule never leaves the room</small></div>
-          <button class="btn" id="dSync" disabled>Sync now</button></div>
       </div>
       <div class="card"><h2>Rename device</h2>
         <div class="drow"><div class="t"><p>Device name</p><small>Use a friendly name for this Aura.</small></div>
@@ -515,7 +513,7 @@ function renderFirmwareStatus(info?:DeviceFirmwareInfo){
   if(firmwareUpdateAvailable){
     if(title)title.textContent='Firmware update available';
     if(message)message.textContent=`Aura is running version ${firmwareVersion||'unknown'}; version ${latestFirmwareVersion} is available.`;
-    if(help)help.textContent='If Wi-Fi credentials are not configured, add them with Wi-Fi Settings in Quick Actions. Then choose Update in the Quick Actions bar.';
+    if(help)help.textContent='If Wi-Fi credentials are not configured, add them with Wi-Fi Settings in Quick Actions. Then choose Update Firmware in the Quick Actions bar.';
   }else if(firmwareVersion){
     if(title)title.textContent='Firmware is up to date';
     if(message)message.textContent=`Installed version: ${firmwareVersion}${latestFirmwareVersion?` · Latest version: ${latestFirmwareVersion}`:''}.`;
@@ -1715,15 +1713,15 @@ function diffRows(){
   body.innerHTML=rows.length?rows.join(''):`<tr><td colspan="3" class="muted" style="text-align:center;padding:20px">Clock and device match.</td></tr>`;
 }
 
-/* Shared schedule sync used by Device tab and Configure clock toolbar */
+/* Shared schedule sync used by the Configure clock toolbar */
 let scheduleSyncInFlight=false;
 function setSyncButtonsBusy(busy){
   scheduleSyncInFlight=!!busy;
-  ['dSync','cfgSync','cfgSyncHabits'].forEach(id=>{
+  ['cfgSync','cfgSyncHabits'].forEach(id=>{
     const btn=document.getElementById(id);
     if(!btn) return;
-    btn.disabled=busy || (id==='dSync' && !connected);
-    btn.textContent=busy?'Syncing…':id==='dSync'?'Sync now':id==='cfgSyncHabits'?'Sync to Device':'Sync Now';
+    btn.disabled=busy;
+    btn.textContent=busy?'Syncing…':id==='cfgSyncHabits'?'Sync to Device':'Sync Now';
     btn.classList.toggle('is-syncing', busy);
     if(id==='cfgSync'||id==='cfgSyncHabits'){
       btn.setAttribute('aria-busy', busy ? 'true' : 'false');
@@ -1801,12 +1799,6 @@ function renderDevice(){
   connectButton.disabled=Boolean(connectionBusy);
   // Preserve in-flight Syncing… label; otherwise reflect connection state
   if(!scheduleSyncInFlight){
-    const dSync=document.getElementById('dSync');
-    if(dSync){
-      dSync.disabled=!connected;
-      dSync.textContent='Sync now';
-      dSync.classList.remove('is-syncing');
-    }
     const cfgSync=document.getElementById('cfgSync');
     if(cfgSync){
       cfgSync.disabled=false;
@@ -1904,7 +1896,6 @@ document.getElementById('dRenameSave').addEventListener('click',async()=>{
   const command=`DEVICE:NAME:SET:${name}`;
   await runQuickCommand(command, `Device renamed to ${name}`);
 });
-document.getElementById('dSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgSyncHabits').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('dExport').addEventListener('click',()=>{

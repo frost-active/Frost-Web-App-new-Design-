@@ -110,10 +110,10 @@ export function TimeRow({ value, label, disabled = false, onCommit }: TimeProps)
 /* ---------- slider + editable number box (cues / cue lasts / streak / goal / interval) ---------- */
 type SliderProps = {
   label: string; value: number; min: number; max: number; step?: number; unit: string;
-  count: (value: number) => string; help: ReactNode; boxWidth?: number; sliderOnly?: boolean; onCommit: (value: number) => void;
+  count?: (value: number) => string; help?: ReactNode; boxWidth?: number; sliderOnly?: boolean; showCount?: boolean; showHelp?: boolean; onCommit: (value: number) => void;
 };
 
-export function SliderField({ label, value, min, max, step = 1, unit, count, help, boxWidth, sliderOnly = false, onCommit }: SliderProps) {
+export function SliderField({ label, value, min, max, step = 1, unit, count, help, boxWidth, sliderOnly = false, showCount = true, showHelp = true, onCommit }: SliderProps) {
   const upper = Math.max(max, value);
   const [draft, setDraft] = useState<number>(value);
   const rangeRef = useRef<HTMLInputElement>(null);
@@ -137,7 +137,7 @@ export function SliderField({ label, value, min, max, step = 1, unit, count, hel
   };
   return (
     <div className={cn(`msec${sliderOnly ? ' cuecount' : ''}`)} style={{ marginBottom: 11 }}>
-      <div className={cn('mlabel')}><span>{label}</span><span className={cn('cnt')}>{count(current)}</span></div>
+      <div className={cn('mlabel')}><span>{label}</span>{showCount && count && <span className={cn('cnt')}>{count(current)}</span>}</div>
       <div className={cn('mslider')}>
         <input ref={rangeRef} type="range" min={min} max={upper} step={step} value={current} aria-label={label} onChange={(e) => setDraft(Number(e.target.value))} />
         {!sliderOnly && <>
@@ -149,7 +149,7 @@ export function SliderField({ label, value, min, max, step = 1, unit, count, hel
         </>}
       </div>
       {sliderOnly && <div className={cn('sliderends')} aria-hidden="true"><span>{min} cue</span><span>{upper} cues</span></div>}
-      <p className={cn('mhelp')}>{help}</p>
+      {showHelp && help && <p className={cn('mhelp')}>{help}</p>}
     </div>
   );
 }
@@ -182,12 +182,12 @@ export function StepCard({ label, value, onStep }: { label: string; value: strin
 }
 
 /* ---------- name box with a live counter ---------- */
-export function NameField({ title, value, placeholder, max = 25, help, onChange }: { title: string; value: string; placeholder: string; max?: number; help: string; onChange: (value: string) => void }) {
+export function NameField({ title, value, placeholder, max = 25, help, showCount = true, onChange }: { title: string; value: string; placeholder: string; max?: number; help: string; showCount?: boolean; onChange: (value: string) => void }) {
   const [text, setText] = useState(value);
   useEffect(() => { setText(value); }, [value]);
   return (
     <div className={cn('msec')}>
-      <div className={cn('mlabel')}><span>{title}</span><span className={cn('cnt')}>{text.length}/{max}</span></div>
+      <div className={cn('mlabel')}><span>{title}</span>{showCount && <span className={cn('cnt')}>{text.length}/{max}</span>}</div>
       <input className={cn('minput')} maxLength={max} placeholder={placeholder} value={text} aria-label={title}
         onChange={(e) => { const next = e.target.value.slice(0, max); setText(next); onChange(next); }} />
       <p className={cn('mhelp')}>{help}</p>

@@ -1,16 +1,14 @@
 import { useRef, type ReactNode } from 'react';
 import { cn, cssVars } from './format';
 import { ActiveDays, NameField, SliderField, TimeChip } from './fields';
-import { displayName, MAX_CUES, MED_MAX_DOSES, type HabitVM, type MyDayStore, type Snapshot } from './store';
+import { MAX_CUES, MED_MAX_DOSES, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 export type EditorProps = { h: HabitVM; store: MyDayStore; snap: Snapshot };
 
 /* ---- how long the cue runs ---- */
 export function CueDuration({ h, store }: EditorProps) {
-  return (
-    <SliderField label="Cue lasts" value={Math.round(h.dur) || 1} min={1} max={60} unit="min" count={(v) => `${v} min`}
-      help="How long the cue runs on the dial and device. Drag the slider." onCommit={(v) => store.setDuration(h, v)} />
-  );
+  return <SliderField label="Cue lasts" value={Math.round(h.dur) || 1} min={1} max={60} unit="min" showCount={false} showHelp={false}
+    onCommit={(v) => store.setDuration(h, v)} />;
 }
 
 /* ---- number of cues (fixed-schedule habits) ---- */
@@ -26,11 +24,8 @@ export function CueCount({ h, store }: EditorProps) {
 
 /* ---- streak length ---- */
 export function StreakLength({ h, store }: EditorProps) {
-  return (
-    <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" count={(v) => `${v} days`}
-      help={`${h.streakDays} unbroken days forms ${displayName(h)}. Lower it and a streak that already clears the new bar forms right away; raise it and nothing already formed is taken back.`}
-      onCommit={(v) => store.setStreakDays(h, v)} />
-  );
+  return <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" showCount={false} showHelp={false}
+    onCommit={(v) => store.setStreakDays(h, v)} />;
 }
 
 export function Days({ h, store }: EditorProps) {
@@ -58,8 +53,8 @@ export function CueTimes({ h, store, title, help, dose = false, removable = true
 }
 
 /* ---- medicine / habit name ---- */
-export function HabitName({ h, store, title, placeholder, help, max }: EditorProps & { title: string; placeholder: string; help: string; max?: number }) {
-  return <NameField title={title} value={h.label} placeholder={placeholder} help={help} max={max} onChange={(v) => store.setLabel(h, v)} />;
+export function HabitName({ h, store, title, placeholder, help, max, showCount }: EditorProps & { title: string; placeholder: string; help: string; max?: number; showCount?: boolean }) {
+  return <NameField title={title} value={h.label} placeholder={placeholder} help={help} max={max} showCount={showCount} onChange={(v) => store.setLabel(h, v)} />;
 }
 
 /* ---- audio on device ---- */
