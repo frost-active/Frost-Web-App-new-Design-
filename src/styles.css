@@ -30,6 +30,13 @@
   .chip.live{color:var(--ink);border-color:rgba(93,202,165,.35)} .chip.live .dot{background:var(--mint)}
   .chip:hover:not(:disabled){border-color:var(--sky);color:var(--ink)}
   .chip:disabled{opacity:.75;cursor:wait}
+  .header-controls{display:flex;align-items:center;gap:12px;flex:none}
+  .header-volume{display:grid;grid-template-columns:auto auto;align-items:center;gap:1px 8px;width:140px;color:var(--muted);font-size:10px}
+  .header-volume output{color:var(--ink);font:700 10px Syne;text-align:right}
+  .header-volume input{grid-column:1 / -1;width:100%;margin:0;accent-color:var(--mint);cursor:pointer}
+  .header-volume input:focus-visible{outline:2px solid var(--sky);outline-offset:3px}
+  .dnd-toggle{white-space:nowrap}
+  .dnd-toggle:disabled{opacity:.5;cursor:not-allowed}
   .firmware-notifications{position:relative;flex:none}
   .notification-bell{width:34px;height:34px;position:relative;display:grid;place-items:center;border:1px solid var(--faint);border-radius:9px;background:transparent;color:var(--muted);transition:.15s}
   .notification-bell:hover,.notification-bell[aria-expanded=true]{border-color:var(--sky);color:var(--ink);background:var(--panel2)}
@@ -37,9 +44,14 @@
   .notification-dot{position:absolute;top:3px;right:3px;width:8px;height:8px;border:1.5px solid var(--navy);border-radius:50%;background:#ef554f}
   .firmware-notice{position:absolute;top:calc(100% + 9px);right:0;z-index:60;width:min(340px,calc(100vw - 24px));padding:14px 15px;border:1px solid var(--faint);border-radius:10px;background:var(--panel);box-shadow:0 14px 32px rgba(4,24,40,.48);color:var(--ink)}
   .firmware-notice[hidden]{display:none}
-  .firmware-notice h2{font:700 12px Syne;margin:0 0 8px}
+  .firmware-notice-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+  .firmware-notice h2{font:700 12px Syne;margin:0}
+  .firmware-notice-close{width:26px;height:26px;flex:none;display:grid;place-items:center;border:1px solid var(--faint);border-radius:7px;background:transparent;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
+  .firmware-notice-close:hover{border-color:var(--sky);color:var(--ink);background:var(--panel2)}
   .firmware-notice p{font-size:12px;line-height:1.5;color:var(--muted)}
-  .firmware-notice .firmware-notice-help{margin-top:8px;color:var(--ink)}
+  .firmware-notice .firmware-notice-help{display:block;width:100%;margin-top:10px;padding:0;border:0;background:transparent;color:var(--ink);font:inherit;font-size:12px;line-height:1.5;text-align:left;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+  .firmware-notice .firmware-notice-help:hover{color:var(--sky)}
+  .firmware-notice .firmware-notice-help[hidden]{display:none}
   .firmware-update-label{display:inline-flex;margin-left:7px;color:#ff8177;font-size:10px;font-weight:700}
   .firmware-update-label[hidden]{display:none}
   .gridtog{display:flex;align-items:center;gap:8px;border:1px solid var(--faint);background:none;color:var(--muted);
@@ -61,14 +73,6 @@
   .uout{border:0;background:transparent;color:var(--muted);font-size:11.5px;padding:6px 8px;border-radius:8px;width:100%;text-align:left}
   .uout:hover{color:var(--ink);background:var(--panel2)}
   @media(max-width:680px){.uinfo{max-width:118px}.user-menu{min-width:180px}.uout{padding:7px 9px}}
-
-  /* ---------- QUICK ACTIONS ---------- */
-  .quick-actions{width:fit-content;max-width:100%;margin:0 0 20px;background:var(--panel);border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:18px}
-  .quick-heading{display:flex;align-items:baseline;gap:8px;flex:none}.quick-heading h2{font:700 11px Syne;letter-spacing:.11em;text-transform:uppercase}.quick-heading span{font-size:10px;color:var(--muted);white-space:nowrap}
-  .quick-controls{display:flex;align-items:center;gap:7px;flex:0 1 auto;min-width:0}.volume-control{display:grid;grid-template-columns:auto auto;align-items:center;gap:3px 8px;min-width:145px;color:var(--muted);font-size:11px}.volume-control output{color:var(--ink);font:700 11px Syne;text-align:right}.volume-control input{grid-column:1 / -1;width:100%;accent-color:var(--mint);cursor:pointer}
-  .quick-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;border:1px solid var(--faint);background:transparent;color:var(--ink);border-radius:8px;padding:7px 9px;font-size:11px;white-space:nowrap;transition:.15s}.quick-btn:hover{border-color:var(--sky);background:var(--panel2)}.quick-btn:disabled{opacity:.55;cursor:wait}.quick-icon{color:var(--mint);font-size:14px;line-height:1}.quick-btn-accent{border-color:rgba(93,202,165,.35);color:var(--mint)}
-  @media(max-width:840px){.quick-actions{width:100%;}.quick-controls{flex-wrap:wrap}.volume-control{flex:1 1 180px}.quick-btn{flex:1 1 auto}}
-  @media(max-width:680px){.quick-actions{margin-bottom:12px;padding:12px 10px;display:block}.quick-heading{margin-bottom:10px}.quick-controls{gap:6px}.quick-btn{min-height:40px;padding:9px 7px;font-size:11px}.volume-control{flex-basis:100%;min-width:100%;margin-bottom:2px}}
 
   .ptitle{font-family:Syne;font-weight:700;font-size:18px;margin-bottom:2px}
   .psub{font-size:12.5px;color:var(--muted);margin-bottom:20px;max-width:640px;line-height:1.55}
@@ -248,7 +252,23 @@
 
   /* ---------- DEVICE ---------- */
   .drow{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--faint)}
-  .drow:last-child{border-bottom:0} .drow .t{flex:1} .drow .t p{font-size:13.5px} .drow .t small{font-size:11.5px;color:var(--muted);display:block;margin-top:2px}
+  .drow:last-child{border-bottom:0} .drow .t{flex:1;min-width:0} .drow .t p{font-size:13.5px} .drow .t small{font-size:11.5px;color:var(--muted);display:block;margin-top:2px}
+  .drow .t small.firmware-version-line{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+  .firmware-version-line::-webkit-scrollbar{display:none}
+  .device-firmware-actions{display:inline-flex;align-items:center;gap:6px;margin-left:6px;flex:none}
+  .wifi-modal-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(4,24,40,.72);backdrop-filter:blur(3px)}
+  .wifi-modal{width:min(100%,390px);padding:20px;border:1px solid var(--faint);border-radius:12px;background:var(--panel);box-shadow:0 20px 56px rgba(0,0,0,.38);color:var(--ink)}
+  .wifi-modal-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
+  .wifi-modal-heading h2{font:700 16px Syne;margin:0 0 5px}
+  .wifi-modal-heading p{font-size:12px;line-height:1.5;color:var(--muted);margin:0}
+  .wifi-modal-close{width:30px;height:30px;flex:none;border:1px solid var(--faint);border-radius:7px;background:transparent;color:var(--muted);font-size:20px;line-height:1}
+  .wifi-modal-close:hover{border-color:var(--sky);color:var(--ink)}
+  .wifi-modal form{display:grid;gap:14px}
+  .wifi-field{display:grid;gap:6px;color:var(--ink);font-size:12px}
+  .wifi-field input{width:100%;padding:10px 11px;border:1px solid var(--faint);border-radius:7px;outline:none;background:var(--navy);color:var(--ink);font:inherit}
+  .wifi-field input:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(41,171,226,.15)}
+  .wifi-modal-error{color:#ff8177;font-size:11px;margin:0}
+  .wifi-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
   .pill{font-size:10.5px;padding:3px 9px;border-radius:99px;border:1px solid var(--faint);color:var(--muted)}
   .pill.ok{border-color:rgba(93,202,165,.4);color:var(--mint)}
   .batt{width:44px;height:20px;border:1.5px solid var(--faint);border-radius:4px;position:relative;flex:none}
@@ -274,8 +294,13 @@
     .user{order:2;margin-left:auto}
     .chip{order:3;padding:6px 10px}
     .firmware-notifications{order:4}
-    .gridtog{order:5}
-    nav.tabs{order:6;flex-basis:100%;width:100%}
+    #header-controls-root{order:5;flex-basis:100%}
+    .header-controls{width:100%;gap:14px}
+    .header-volume{flex:1;width:auto;grid-template-columns:auto minmax(0,1fr) auto;gap:0 9px}
+    .header-volume input{grid-column:2;grid-row:1;}
+    .header-volume output{grid-column:3;grid-row:1;}
+    .gridtog{order:6}
+    nav.tabs{order:7;flex-basis:100%;width:100%}
     nav.tabs button{flex:1;text-align:center;padding:11px 4px;font-size:13px}
     .ptitle{font-size:16px}
     .psub{display:none}                       /* reclaim vertical space on mobile */

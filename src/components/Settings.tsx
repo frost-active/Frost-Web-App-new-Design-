@@ -37,6 +37,7 @@ export default function Settings({ displaySeconds, onDisplaySecondsChange, isDev
       <div className="ptitle">Settings</div>
       <p className="psub">Configure how FROST Aura presents your reminders.</p>
       <div className="settings-stack">
+        {/*
         <article className="card settings-card">
           <h2>Display Setting</h2>
           <p className="settings-lead">Centralized display duration for all reminders.</p>
@@ -90,7 +91,7 @@ export default function Settings({ displaySeconds, onDisplaySecondsChange, isDev
             </div>
           </label>
           <p className="settings-help" id="displayDurationHelp">How long reminder messages are shown on the device display. Applies to all features and reminders.</p>
-        </article>
+        </article> */}
         <article className="card settings-card">
           <h2>Bottle Controls</h2>
           <p className="settings-lead">Turn water consumption learning on or off for the connected device.</p>

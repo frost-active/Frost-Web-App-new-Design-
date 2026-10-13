@@ -54,6 +54,22 @@ export async function saveDailyGoal(uid: string, macAddress: string, dailyGoalMl
   await setDoc(deviceDocument(uid, macAddress), { dailyGoalMl: Math.max(0, Math.round(dailyGoalMl)) }, { merge: true });
 }
 
+export type SaveDeviceNameResult = { ok: true } | { ok: false; message: string };
+
+export async function saveDeviceName(uid: string, macAddress: string, deviceName: string): Promise<SaveDeviceNameResult> {
+  const name = deviceName.trim();
+  if (!name || name.length > 32) return { ok: false, message: 'Enter a device name between 1 and 32 characters.' };
+  try {
+    const ownershipCheck = await ensureDeviceBindingMatchesUser(macAddress, uid);
+    if (!ownershipCheck.allowed) return { ok: false, message: ownershipCheck.message };
+    await setDoc(deviceDocument(uid, macAddress), { deviceName: name, deviceNameUpdatedAt: serverTimestamp() }, { merge: true });
+    return { ok: true };
+  } catch (error) {
+    console.error('Unable to save the FROST device name.', error);
+    return { ok: false, message: 'The device was renamed, but its name could not be saved to your account.' };
+  }
+}
+
 export async function saveDndStatus(uid: string, macAddress: string | null, dndEnabled: boolean): Promise<void> {
   const resolvedMac = macAddress || (await resolveBoundMacAddress(uid));
   if (!resolvedMac) return;
@@ -116,6 +132,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
   const [config, setConfig] = useState<DeviceConfig | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [dndEnabled, setDndEnabled] = useState<boolean>(false);
+  const [deviceName, setDeviceName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -129,7 +146,8 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
     let unsubscribeConfig: (() => void) | undefined;
     let unsubscribeDevice: (() => void) | undefined;
     let latestConfigData: DeviceConfigDocument | undefined;
-    let latestDeviceData: { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
+    let latestDeviceData: { dailyGoalMl?: number; dndEnabled?: boolean; deviceName?: string } | undefined;
+    setDeviceName(null);
 
     const fail = (reason: unknown) => {
       if (cancelled) return;
@@ -188,7 +206,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       }
       if (cancelled) return;
       if (!resolvedMac) {
-        setConfig(null); setLastSyncedAt(null); setLoading(false); return;
+        setConfig(null); setLastSyncedAt(null); setDeviceName(null); setLoading(false); return;
       }
 
       unsubscribeConfig = onSnapshot(configDocument(uid, resolvedMac), (snapshot) => {
@@ -203,7 +221,8 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
       }, fail);
 
       unsubscribeDevice = onSnapshot(deviceDocument(uid, resolvedMac), (snapshot) => {
-        latestDeviceData = snapshot.data() as { dailyGoalMl?: number; dndEnabled?: boolean } | undefined;
+        latestDeviceData = snapshot.data() as { dailyGoalMl?: number; dndEnabled?: boolean; deviceName?: string } | undefined;
+        setDeviceName(typeof latestDeviceData?.deviceName === 'string' ? latestDeviceData.deviceName : null);
         applyConfigState();
       }, fail);
     };
@@ -216,7 +235,7 @@ export function useDeviceConfig(macAddress: string | null, uid: string) {
     };
   }, [macAddress, uid, attempt]);
 
-  return { config, lastSyncedAt, dndEnabled, loading, error, reload };
+  return { config, lastSyncedAt, dndEnabled, deviceName, loading, error, reload };
 }
 
 export function useDeviceConfigHistory(macAddress: string | null, uid: string) {

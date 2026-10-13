@@ -3,7 +3,7 @@ import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFirmwareInfo } from './DeviceFirmwareSync';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
-import { ensureDeviceBindingMatchesUser, saveDailyGoal, saveDeviceConfig, saveDndStatus } from './DeviceConfigSync';
+import { ensureDeviceBindingMatchesUser, saveDailyGoal, saveDeviceConfig, saveDeviceName, saveDndStatus } from './DeviceConfigSync';
 import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
@@ -17,6 +17,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
   right: 10px;
   z-index: 6;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
   pointer-events: none;
@@ -50,6 +51,52 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
   opacity: 0.9;
   cursor: wait;
 }
+#page-configure .clock-toolbar .clock-undo {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 104px;
+  padding: 7px 10px;
+  font: 600 11px/1.2 'DM Sans', system-ui, sans-serif;
+  border: 1px solid var(--faint, rgba(230,241,248,.16));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel2, #15202b) 88%, transparent);
+  color: var(--ink, #eef6fc);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+#page-configure .clock-toolbar .clock-undo[hidden] {
+  display: none;
+}
+#page-configure .clock-toolbar .clock-undo:hover:not(:disabled) {
+  border-color: var(--sky, #5eb8ff);
+  background: color-mix(in srgb, var(--sky, #5eb8ff) 14%, var(--panel2, #15202b));
+}
+#page-configure .clock-toolbar .clock-undo:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+#page-configure .clock-toolbar .clock-undo svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.device-name-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.device-name-actions [hidden] { display: none !important; }
+.device-name-actions #dRenameInput[readonly] { opacity: .82; }
+.device-name-actions #dRenameEdit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 </style>
 <div class="wrap">
@@ -62,7 +109,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       <button data-p="settings">Settings</button>
     </nav>
     <div class="hspace"></div>
-    <button class="gridtog" id="fmttog" aria-pressed="false">12-hour<span class="sw"></span></button>
+    <div id="header-controls-root"></div>
     <button class="gridtog on" id="gridtog" aria-pressed="true">Grid<span class="sw"></span></button>
     <button class="chip" id="chip" type="button" aria-label="Not connected. Connect to FROST Aura" title="Connect to FROST Aura"><span class="dot" aria-hidden="true"></span><span id="chipTxt">Not connected · Connect</span></button>
     <div class="firmware-notifications">
@@ -70,10 +117,10 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
         <span class="notification-dot" id="firmwareDot" hidden></span>
       </button>
-      <div class="firmware-notice" id="firmwareNotice" role="status" hidden>
-        <h2 id="firmwareNoticeTitle">Firmware status</h2>
+      <div class="firmware-notice" id="firmwareNotice" role="region" aria-label="Firmware notification" aria-live="polite" hidden>
+        <div class="firmware-notice-heading"><h2 id="firmwareNoticeTitle">Firmware status</h2><button class="firmware-notice-close" id="firmwareNoticeClose" type="button" aria-label="Close firmware notification">&times;</button></div>
         <p id="firmwareNoticeMessage">Connect your FROST Aura to check its firmware.</p>
-        <p class="firmware-notice-help" id="firmwareNoticeHelp"></p>
+        <button class="firmware-notice-help" id="firmwareNoticeHelp" type="button" hidden></button>
       </div>
     </div>
     <div class="user" id="user">
@@ -89,8 +136,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     </div>
   </header>
 
-  <div id="quick-actions-root"></div>
-
   <!-- ============ CONFIGURE ============ -->
   <section id="page-configure">
     <div class="ptitle">My day</div>
@@ -100,6 +145,10 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
         <div class="clockcard cfg-dialcard">
           <div class="clock-toolbar">
             <button class="btn clock-sync" id="cfgSync" type="button" title="Send current schedule to your FROST Aura">Sync Now</button>
+            <button class="btn clock-undo" id="cfgUndo" type="button" title="Undo unsynced changes" aria-label="Undo unsynced changes" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 14 4 9l5-5M4 9h10a6 6 0 0 1 0 12h-2" /></svg>
+              <span>Undo Changes</span>
+            </button>
           </div>
           <div id="configure-dial-root"></div>
         </div>
@@ -165,16 +214,18 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     <p class="psub">Your FROST Aura connection, firmware, and the schedule it's currently running.</p>
     <div style="display:flex;flex-direction:column;gap:14px;max-width:680px">
       <div class="card"><h2>Binding</h2><div id="device-binding-root"></div>
-        <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small><small>Firmware Version: <span id="dFirmwareVersion">Not available</span><span class="firmware-update-label" id="firmwareUpdateLabel" role="status" hidden>Firmware Update available</span></small><small>Web App Version: 3.0</small></div>
-          <div class="batt"><i style="--p:82%"></i></div>
-          <span class="pill" id="dState">Offline</span>
-          <button class="btn" id="dConnect">Connect</button></div>
+        <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small><small class="firmware-version-line">Firmware Version: <span id="dFirmwareVersion">Not available</span><span class="firmware-update-label" id="firmwareUpdateLabel" role="status" hidden>Firmware Update available</span><span id="device-firmware-actions-root"></span></small><small>Web App Version: 3.0</small></div>
+        </div>
       </div>
       <div class="card"><h2>Rename device</h2>
         <div class="drow"><div class="t"><p>Device name</p><small>Use a friendly name for this Aura.</small></div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input id="dRenameInput" type="text" value="Frost 1" maxlength="32" aria-label="Device name" style="min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);color:var(--text)">
-            <button class="btn" id="dRenameSave" type="button">Save</button>
+          <div class="device-name-actions">
+            <input id="dRenameInput" type="text" value="Frost 1" maxlength="32" readonly aria-label="Device name" style="min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);color:var(--text)">
+            <button class="btn sm" id="dRenameEdit" type="button" aria-label="Edit device name" title="Edit device name" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
+            </button>
+            <button class="btn sm pri" id="dRenameSave" type="button" hidden>Save</button>
+            <button class="btn sm" id="dRenameCancel" type="button" hidden>Cancel</button>
           </div>
         </div>
       </div>
@@ -439,6 +490,8 @@ let firmwareVersion:string|null=null;
 let latestFirmwareVersion:string|null=null;
 let firmwareUpdateAvailable=false;
 let firmwareInfoUnsubscribe:()=>void=()=>undefined;
+let storedDeviceName:string|null=null;
+let renameEditing=false, renameBusy=false;
 let liveConfigSynced=false;
 let syncedConfigAvailable=false;
 /* ---- the last synced schedule (what the database holds) ----
@@ -453,6 +506,7 @@ let cfgLoad={status:'loading',message:''};   // loading / empty / ready / error 
 let cfgLastSyncedAt=null;        // ms since epoch of the last successful sync (Aura and account)
 let cfgSyncFailed=false;         // the latest Sync attempt did not complete
 let cfgRestoreError='';          // the saved schedule exists but could not be read
+let lastSyncedConfig:typeof defaultConfig|null=null;
 /* ---- day counter ----
    The latest configHistory entry (by its sync timestamp) says when the schedule was last synced and how long each
    habit's streak is. cfgDayLocal is the sync that has just succeeded here, until the history listing reports it. */
@@ -513,15 +567,15 @@ function renderFirmwareStatus(info?:DeviceFirmwareInfo){
   if(firmwareUpdateAvailable){
     if(title)title.textContent='Firmware update available';
     if(message)message.textContent=`Aura is running version ${firmwareVersion||'unknown'}; version ${latestFirmwareVersion} is available.`;
-    if(help)help.textContent='If Wi-Fi credentials are not configured, add them with Wi-Fi Settings in Quick Actions. Then choose Update Firmware in the Quick Actions bar.';
+    if(help){help.textContent='Use Wi-Fi Settings and Update Firmware beside the firmware version in the Device tab.';help.hidden=false;}
   }else if(firmwareVersion){
     if(title)title.textContent='Firmware is up to date';
     if(message)message.textContent=`Installed version: ${firmwareVersion}${latestFirmwareVersion?` · Latest version: ${latestFirmwareVersion}`:''}.`;
-    if(help)help.textContent='';
+    if(help){help.textContent='';help.hidden=true;}
   }else{
     if(title)title.textContent='Firmware status';
     if(message)message.textContent='Connect your FROST Aura to check its firmware.';
-    if(help)help.textContent='';
+    if(help){help.textContent='';help.hidden=true;}
   }
 }
 
@@ -531,6 +585,48 @@ function syncedCategories(){
     const saved=device.find(item=>item.k===category.k);
     return saved?{...category,on:saved.on,dur:saved.dur,times:[...saved.times]}:null;
   }).filter(Boolean);
+}
+
+function restoreSyncedConfiguration(saved:typeof defaultConfig,docSig=stableStringify(saved)){
+  let model,nextCats;
+  try{
+    model=syncedConfigToModel(saved);
+    nextCats=buildActiveCategories(model.raw);
+  }catch(error){
+    console.error('Unable to read the synced FROST configuration.',error);
+    cfgRestoreError='Your last synced schedule is saved, but it could not be read.';
+    notifyConfigure();
+    return false;
+  }
+  cfgRestoreError='';
+  const prevSel=sel?{k:sel.k,i:sel.i,id:selectedGroupId()}:null;
+  Object.keys(RAW).forEach(key=>delete RAW[key]);
+  Object.assign(RAW,model.raw);
+  CATS=nextCats;
+  syncPomo();
+  { const _pb=pomoSessionBounds(RAW.pomodoro); pomoFrom=_pb.start; pomoTo=_pb.end; }
+  device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
+  Object.keys(cfgStreakWindows).forEach(id=>delete cfgStreakWindows[id]);
+  Object.assign(cfgStreakWindows,model.streakWindows);
+  cfgSyncedHabitIds=model.habitIds;
+  cfgSyncedStreakDays=model.streakDays;
+  cfgRestoreToken++;
+  cfgSyncFailed=false;
+  syncedConfigAvailable=true;
+  sel=prevSel?{k:prevSel.k,i:prevSel.i}:null;
+  if(sel&&prevSel.id){
+    const rc=CATS.find(x=>x.k===sel.k);
+    const gIdx=(rc?.groups&&rc.gi)?rc.groups.findIndex(g=>g.id===prevSel.id):-1;
+    const occ=gIdx>=0?rc.gi.indexOf(gIdx):-1;
+    if(occ>=0)sel.i=occ;
+  }
+  normalizeSelection();
+  renderConfigure();
+  if(page==='device')renderDevice();
+  syncedSig=configSig();lastDocSig=docSig;
+  lastSyncedConfig=JSON.parse(JSON.stringify(saved));
+  refreshDirty();
+  return true;
 }
 
 /* Loading / nothing synced yet / ready / could not be read — pushed in by the dashboard host (HomeScreen). */
@@ -551,43 +647,7 @@ window.addEventListener('frost-device-config',event=>{
   const docSig=stableStringify(saved);
   if(docSig===lastDocSig)return;   // the same saved schedule again (a goal / DND update on the device, or our own sync coming back)
   if(hasUnsyncedEdits())return;
-  let model,nextCats;
-  try{
-    model=syncedConfigToModel(saved);
-    nextCats=buildActiveCategories(model.raw);
-  }catch(error){
-    console.error('Unable to read the synced FROST configuration.',error);
-    cfgRestoreError='Your last synced schedule is saved, but it could not be read.';
-    notifyConfigure();
-    return;
-  }
-  cfgRestoreError='';
-  const prevSel=sel?{k:sel.k,i:sel.i,id:selectedGroupId()}:null;
-  Object.keys(RAW).forEach(key=>delete RAW[key]);
-  Object.assign(RAW,model.raw);
-  CATS=nextCats;
-  syncPomo();
-  { const _pb=pomoSessionBounds(RAW.pomodoro); pomoFrom=_pb.start; pomoTo=_pb.end; }
-  device=CATS.map(c=>({k:c.k,on:c.on,dur:c.dur,times:[...c.times]}));
-  Object.keys(cfgStreakWindows).forEach(id=>delete cfgStreakWindows[id]);
-  Object.assign(cfgStreakWindows,model.streakWindows);
-  cfgSyncedHabitIds=model.habitIds;
-  cfgSyncedStreakDays=model.streakDays;
-  cfgRestoreToken++;
-  cfgSyncFailed=false;
-  syncedConfigAvailable=true;
-  // Re-point the selection at the same event in the freshly loaded data (indices may have shifted)
-  sel=prevSel?{k:prevSel.k,i:prevSel.i}:null;
-  if(sel&&prevSel.id){
-    const rc=CATS.find(x=>x.k===sel.k);
-    const gIdx=(rc?.groups&&rc.gi)?rc.groups.findIndex(g=>g.id===prevSel.id):-1;
-    const occ=gIdx>=0?rc.gi.indexOf(gIdx):-1;
-    if(occ>=0)sel.i=occ;
-  }
-  normalizeSelection();
-  renderConfigure();   // also hands the My day store the reloaded schedule
-  if(page==='device')renderDevice();
-  syncedSig=configSig();lastDocSig=docSig;
+  restoreSyncedConfiguration(saved,docSig);
 });
 window.addEventListener('frost-device-config-saved',()=>{
   syncedConfigAvailable=true;
@@ -602,6 +662,11 @@ window.addEventListener('frost-device-dnd-status',event=>{
   const enabled=(event as CustomEvent<{ enabled?: boolean }>).detail?.enabled ?? false;
   dndOn = Boolean(enabled);
   if(page==='configure')renderConfigure();
+});
+window.addEventListener('frost-device-name',event=>{
+  const name=(event as CustomEvent<{deviceName?:string|null}>).detail?.deviceName;
+  storedDeviceName=typeof name==='string'&&name.trim()?name.trim():null;
+  renderDeviceName();
 });
 window.addEventListener('frost-device-mac',event=>{
   const mac=(event as CustomEvent<{macAddress?:string}>).detail?.macAddress;
@@ -1730,6 +1795,7 @@ function setSyncButtonsBusy(busy){
         : 'Send current schedule to your FROST Aura';
     }
   });
+  refreshDirty();
 }
 async function syncScheduleToDevice(){
   if(scheduleSyncInFlight) return;
@@ -1777,6 +1843,7 @@ async function syncScheduleToDevice(){
       cfgLastSyncedAt=Date.now();
       if(Array.isArray(cloudConfig.ui_meta?.habits))cfgSyncedHabitIds=cloudConfig.ui_meta.habits;
       syncedSig=lastDocSig=stableStringify(cloudConfig);
+      lastSyncedConfig=JSON.parse(JSON.stringify(cloudConfig));
       cfgDayLocal={...cfgDayFrom(cloudConfig,cfgLastSyncedAt),source:null};   // a new sync restarts every habit's counter at Day 1
       refreshDirty();
       toast('Schedule synced to Aura');
@@ -1792,11 +1859,6 @@ async function syncScheduleToDevice(){
 }
 
 function renderDevice(){
-  document.getElementById('dState').textContent=connected?'Connected':'Offline';
-  document.getElementById('dState').classList.toggle('ok',connected);
-  const connectButton=document.getElementById('dConnect');
-  connectButton.textContent=connectionBusy==='connecting'?'Connecting…':connectionBusy==='disconnecting'?'Disconnecting…':connected?'Disconnect':'Connect';
-  connectButton.disabled=Boolean(connectionBusy);
   // Preserve in-flight Syncing… label; otherwise reflect connection state
   if(!scheduleSyncInFlight){
     const cfgSync=document.getElementById('cfgSync');
@@ -1818,15 +1880,75 @@ function renderDevice(){
   } else {
     setSyncButtonsBusy(true);
   }
+  renderDeviceName();
   diffRows();
   document.getElementById('jsonOut').textContent=JSON.stringify(toDeviceJSON(),null,2);
 }
+function renderDeviceName(){
+  const input=document.getElementById('dRenameInput');
+  const edit=document.getElementById('dRenameEdit');
+  const save=document.getElementById('dRenameSave');
+  const cancel=document.getElementById('dRenameCancel');
+  if(!input)return;
+  const canRename=Boolean(bleClient?.isConnected&&deviceMac&&authenticatedUser?.uid);
+  if(renameEditing&&!canRename)renameEditing=false;
+  if(!renameEditing)input.value=storedDeviceName||bleClient?.name||'Frost 1';
+  input.readOnly=!renameEditing;
+  if(edit)edit.disabled=!canRename||renameBusy;
+  if(save)save.disabled=!canRename||renameBusy;
+  if(cancel)cancel.disabled=renameBusy;
+  if(edit)edit.hidden=renameEditing;
+  if(save)save.hidden=!renameEditing;
+  if(cancel)cancel.hidden=!renameEditing;
+}
+function setRenameEditing(editing:boolean){
+  renameEditing=editing;
+  renderDeviceName();
+  if(editing){const input=document.getElementById('dRenameInput');input?.focus();input?.select();}
+}
+async function saveDeviceRename(){
+  if(renameBusy)return;
+  if(!bleClient?.isConnected){toast('Connect a FROST Aura device before renaming it');return;}
+  if(!deviceMac||!authenticatedUser?.uid){toast('Connect and bind your FROST Aura to your account before renaming it');return;}
+  const input=document.getElementById('dRenameInput');
+  const name=String(input?.value||'').trim();
+  if(!name||name.length>32){toast('Enter a device name between 1 and 32 characters');input?.focus();return;}
+  if(/[:\u0000-\u001f\u007f]/.test(name)){toast('Device names cannot contain colons or control characters');input?.focus();return;}
+  renameBusy=true;renderDeviceName();
+  try{
+    const ownershipCheck=await ensureDeviceBindingMatchesUser(deviceMac,authenticatedUser.uid);
+    if(!ownershipCheck.allowed){toast(ownershipCheck.message);return;}
+    if(!bleClient?.isConnected)throw new Error('The device disconnected before the rename could be sent.');
+    const status=await bleClient.sendAndRead(`DEVICE:NAME:SET:${name}`);
+    if(status.startsWith('ERROR:'))throw new Error(status);
+    storedDeviceName=name;
+    const saved=await saveDeviceName(authenticatedUser.uid,deviceMac,name);
+    renderDeviceName();
+    if(!saved.ok){toast(saved.message);return;}
+    setRenameEditing(false);
+    toast(`Device renamed to ${name}`);
+  }catch(error){
+    toast(error instanceof Error?error.message:'Device rename failed');
+  }finally{
+    renameBusy=false;
+    renderDeviceName();
+  }
+}
+function setFirmwareNoticeOpen(open:boolean){
+  const bell=document.getElementById('firmwareBell');
+  const notice=document.getElementById('firmwareNotice');
+  if(bell)bell.setAttribute('aria-expanded',String(open));
+  if(notice)notice.hidden=!open;
+}
 document.getElementById('firmwareBell').addEventListener('click',event=>{
   const bell=event.currentTarget as HTMLButtonElement;
-  const notice=document.getElementById('firmwareNotice');
   const expanded=bell.getAttribute('aria-expanded')==='true';
-  bell.setAttribute('aria-expanded',String(!expanded));
-  if(notice)notice.hidden=expanded;
+  setFirmwareNoticeOpen(!expanded);
+});
+document.getElementById('firmwareNoticeClose').addEventListener('click',()=>setFirmwareNoticeOpen(false));
+document.getElementById('firmwareNoticeHelp').addEventListener('click',()=>{
+  setFirmwareNoticeOpen(false);
+  show('device');
 });
 async function toggleDeviceConnection(){
   if(connectionBusy)return;
@@ -1837,6 +1959,7 @@ async function toggleDeviceConnection(){
       await bleClient.disconnect();
       // Preserve deviceMac so Statistics continue to load from the database for the bound device.
       bleClient=null; connected=false; liveConfigSynced=false;
+      setRenameEditing(false);
       showDeviceMac();
       window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
       setChip(); renderDevice(); toast('Disconnected');
@@ -1844,11 +1967,10 @@ async function toggleDeviceConnection(){
       bleClient=await requestFrostDevice();
       connected=bleClient.isConnected;
       liveConfigSynced=false;
-      const renameInput=document.getElementById('dRenameInput');
-      if(renameInput) renameInput.value = bleClient.name || 'Frost 1';
       bleClient['device']?.addEventListener('gattserverdisconnected',()=>{
         // Preserve deviceMac for continued DB statistics after unexpected disconnect.
         bleClient=null; connected=false; liveConfigSynced=false;
+        setRenameEditing(false);
         showDeviceMac();
         window.dispatchEvent(new CustomEvent('frost-device-disconnected'));
         setChip(); renderDevice(); toast('Device disconnected');
@@ -1886,18 +2008,23 @@ async function toggleDeviceConnection(){
     setChip(); renderDevice();
   }
 }
-document.getElementById('dConnect').addEventListener('click',()=>void toggleDeviceConnection());
 document.getElementById('chip').addEventListener('click',()=>void toggleDeviceConnection());
-document.getElementById('dRenameSave').addEventListener('click',async()=>{
-  if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
-  const input=document.getElementById('dRenameInput');
-  const name=String(input?.value||'').trim();
-  if(!name){toast('Enter a device name first');input?.focus?.();return;}
-  const command=`DEVICE:NAME:SET:${name}`;
-  await runQuickCommand(command, `Device renamed to ${name}`);
+document.getElementById('dRenameEdit').addEventListener('click',()=>{
+  if(!bleClient?.isConnected){toast('Connect a FROST Aura device before renaming it');return;}
+  setRenameEditing(true);
+});
+document.getElementById('dRenameSave').addEventListener('click',()=>{void saveDeviceRename();});
+document.getElementById('dRenameCancel').addEventListener('click',()=>setRenameEditing(false));
+document.getElementById('dRenameInput').addEventListener('keydown',event=>{
+  if(event.key==='Enter'&&renameEditing){event.preventDefault();void saveDeviceRename();}
+  if(event.key==='Escape'&&renameEditing){event.preventDefault();setRenameEditing(false);}
 });
 document.getElementById('cfgSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgSyncHabits').addEventListener('click',()=>{ void syncScheduleToDevice(); });
+document.getElementById('cfgUndo').addEventListener('click',()=>{
+  if(scheduleSyncInFlight||!lastSyncedConfig||!hasUnsyncedEdits())return;
+  if(restoreSyncedConfiguration(lastSyncedConfig))toast('Unsynced changes undone');
+});
 document.getElementById('dExport').addEventListener('click',()=>{
   const blob=new Blob([JSON.stringify(toDeviceJSON(),null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob), link=document.createElement('a'); link.href=url; link.download='frost-config.json'; link.click(); URL.revokeObjectURL(url);
@@ -1941,10 +2068,9 @@ window.addEventListener('frost-quick-action',event=>{
   const action=event.detail;
   if(action.type==='volume')runQuickCommand(`SET VOLUME ${action.value}`,`Volume set to ${action.value}`);
   if(action.type==='wifi'){
-    const ssid=window.prompt('Enter 2.4 GHz Wi-Fi name:','')?.trim();
-    if(!ssid)return;
-    const password=window.prompt('Enter Wi-Fi password:','');
-    if(password===null||ssid.includes('|')||password.includes('|')){toast('Wi-Fi values cannot contain |');return;}
+    const ssid=String(action.ssid||'').trim();
+    const password=String(action.password||'');
+    if(!ssid||ssid.includes('|')||password.includes('|')){toast('Enter a Wi-Fi name and password without |');return;}
     runQuickCommand(`WIFI:SET:${ssid}|${password}`,'Wi-Fi credentials saved');
   }
   if(action.type==='bottle-control'){
@@ -1969,17 +2095,6 @@ window.addEventListener('frost-quick-action',event=>{
       });
     }
   }
-  if(action.type==='time'){
-    void (async()=>{
-      if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
-      try{
-        await bleClient.syncCurrentTime();
-        toast('Device time synchronized');
-      }catch(error){
-        toast(error instanceof Error?error.message:'SET time failed');
-      }
-    })();
-  }
   if(action.type==='update')runQuickCommand('OTA:START','Firmware update started');
 });
 
@@ -1995,6 +2110,12 @@ function setChip(){
 }
 function refreshDirty(){
   const dirty=JSON.stringify(snapshot())!==JSON.stringify(device);
+  const undoDirty=hasUnsyncedEdits();
+  const undoButton=document.getElementById('cfgUndo');
+  if(undoButton){
+    undoButton.hidden=!undoDirty||!lastSyncedConfig;
+    undoButton.disabled=scheduleSyncInFlight;
+  }
   ['cfgSync','cfgSyncHabits'].forEach(id=>{
     const syncButton=document.getElementById(id);
     if(!syncButton)return;
@@ -2025,13 +2146,6 @@ document.getElementById('statsSync').addEventListener('click',()=>syncStatistics
 document.getElementById('rangeCtl').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#rangeCtl button').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');range=b.dataset.r;renderStats();});
 document.getElementById('gridtog').addEventListener('click',e=>{grid=!grid;e.currentTarget.classList.toggle('on',grid);e.currentTarget.setAttribute('aria-pressed',grid);drawClock();});
-document.getElementById('fmttog').addEventListener('click',e=>{
-  h24=!h24; e.currentTarget.classList.toggle('on',h24); e.currentTarget.setAttribute('aria-pressed',h24);
-  e.currentTarget.firstChild.textContent=h24?'24-hour':'12-hour';
-  // refresh whatever's on screen so all times switch format
-  if(page==='configure')renderConfigure(); else if(page==='stats')renderStats(); else renderDevice();
-});
-
 /* ---- session: who is signed in (real Cognito ID token) ----
    The token is read from wherever frost-login.html put it (localStorage if
    "keep me signed in" was checked, sessionStorage otherwise). Only the

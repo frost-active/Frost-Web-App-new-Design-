@@ -1,5 +1,5 @@
 import { arcF, arcMini, CX, CY, cn, cssVars, ptH, R_DOSE, R_NUM, R_RIM, R_TICK, ringRadius, ringStep, TAU, TOP, to12, unitFor, wedge } from './format';
-import { dayOf, displayName, FORM_DEFAULT, streakOf, type HabitVM, type MyDayStore, type Snapshot } from './store';
+import { dayOf, displayName, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 type Props = { snap: Snapshot; store: MyDayStore };
 
@@ -45,7 +45,6 @@ export default function ConfigureDial({ snap, store }: Props) {
   const n = list.length;
   const stp = ringStep(n);
   const sel = snap.selected;
-  const gap = 0.006;
 
   return (
     <svg className={cn('dial')} id="cfg-dial" viewBox="0 0 640 640" role="img" aria-label="Your day on Aura">
@@ -68,19 +67,6 @@ export default function ConfigureDial({ snap, store }: Props) {
           </g>
         );
       })}
-
-      {/* the rim: the selected reminder's streak, out of its own streak length */}
-      {sel ? (() => {
-        const streakDays = sel.streakDays, streak = streakOf(sel), off = Math.max(0, streak - streakDays);
-        return Array.from({ length: streakDays }, (_, i) => {
-          const abs = i + off;
-          let cls = cn('rimseg');
-          if (abs < sel.streak) cls += ` ${cn(sel.log[abs] === 2 ? 's' : 'f')}`;
-          else if (abs < streak) cls += ` ${cn('f')}`;
-          else if (abs === streak && !sel.formed) cls += ` ${cn('t')}`;
-          return <path key={i} d={arcF(R_RIM, i / streakDays + gap, (i + 1) / streakDays - gap)} className={cls} style={cssVars({ '--c': sel.color })} />;
-        });
-      })() : Array.from({ length: FORM_DEFAULT }, (_, i) => <path key={i} d={arcF(R_RIM, i / FORM_DEFAULT + gap, (i + 1) / FORM_DEFAULT - gap)} className={cn('rimseg')} />)}
 
       {/* one ring per reminder on the dial; each cue is an arc as long as it lasts */}
       {list.map((h, index) => {
@@ -140,7 +126,7 @@ export default function ConfigureDial({ snap, store }: Props) {
       })}
 
       {/* now */}
-      {(() => { const [x, y] = ptH(snap.nowH, R_RIM); return <circle className={cn('nowdot')} cx={x} cy={y} r={5} />; })()}
+      {(() => { const [x, y] = ptH(snap.nowH, R_TICK + 7); return <circle className={cn('nowdot')} cx={x} cy={y} r={5} />; })()}
 
       {/* centre: the selected reminder's day, filled in from real Acknowledged data */}
       {sel ? (() => {

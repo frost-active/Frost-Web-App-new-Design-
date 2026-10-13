@@ -133,14 +133,6 @@
 #page-configure .cfg-daycol{display:flex;flex-direction:column;gap:14px}
 #page-configure .cfg-dialcard{background:var(--panel);border-radius:20px;padding:10px 10px 4px;position:relative}
 #page-configure svg.cfg-dial{display:block;width:100%;height:auto;touch-action:pan-y}
-#page-configure .cfg-rimseg{fill:none;stroke:rgba(230,241,248,.09);stroke-width:9;stroke-linecap:round}
-#page-configure .cfg-rimseg.cfg-f{stroke:var(--c)}
-#page-configure .cfg-rimseg.cfg-s{stroke:var(--sky);opacity:.6}
-#page-configure .cfg-rimseg.cfg-t{stroke:var(--c);opacity:.3;animation:cfg-segpulse 2.3s ease-in-out infinite}
-@keyframes cfg-segpulse{50%{opacity:.85}}
-@media(prefers-reduced-motion:reduce){
-  #page-configure .cfg-rimseg.cfg-t{animation:none;opacity:.55}
-}
 #page-configure .cfg-tickline{stroke:rgba(230,241,248,.16)}
 #page-configure .cfg-ticknum{fill:rgba(230,241,248,.28);font:500 10.5px "DM Sans";text-anchor:middle}
 #page-configure .cfg-ticknum.cfg-major{fill:rgba(230,241,248,.5);font:700 13px "DM Sans"}

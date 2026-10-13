@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { mountFrost } from './legacy';
-import QuickActions from './components/QuickActions';
+import HeaderControls from './components/HeaderControls';
+import DeviceFirmwareActions from './components/DeviceFirmwareActions';
 import Settings from './components/Settings';
 import DeviceBinding from './components/DeviceBinding';
 import { ConfigureClockPanel, ConfigureSidePanel, ConfigureChallengesPanel } from './pages/ConfigurePage';
@@ -12,9 +13,10 @@ import type { User } from 'firebase/auth';
 
 export default function HomeScreen({ user }: { user: User }) {
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const quickActionsRoot = useRef<Root | null>(null);
+  const headerControlsRoot = useRef<Root | null>(null);
   const settingsRoot = useRef<Root | null>(null);
   const deviceBindingRoot = useRef<Root | null>(null);
+  const deviceFirmwareActionsRoot = useRef<Root | null>(null);
   const configureClockRoot = useRef<Root | null>(null);
   const configureSideRoot = useRef<Root | null>(null);
   const configureChallengesRoot = useRef<Root | null>(null);
@@ -23,7 +25,7 @@ export default function HomeScreen({ user }: { user: User }) {
   const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled, loading: configLoading, error: configError, reload: reloadConfig } = useDeviceConfig(macAddress, user.uid);
+  const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled, deviceName: storedDeviceName, loading: configLoading, error: configError, reload: reloadConfig } = useDeviceConfig(macAddress, user.uid);
   const storedConfigHistory = useDeviceConfigHistory(macAddress, user.uid);
 
   useEffect(() => {
@@ -78,23 +80,24 @@ export default function HomeScreen({ user }: { user: User }) {
     window.dispatchEvent(new CustomEvent('frost-device-dnd-status', { detail: { enabled: Boolean(storedDndEnabled) } }));
   }, [storedDndEnabled]);
 
-  const renderQuickActions = (currentVolume: number, currentDndEnabled: boolean) => quickActionsRoot.current?.render(
-    <QuickActions
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('frost-device-name', { detail: { deviceName: storedDeviceName } }));
+  }, [storedDeviceName]);
+
+  const renderHeaderControls = (currentVolume: number, currentDndEnabled: boolean, deviceConnected: boolean) => headerControlsRoot.current?.render(
+    <HeaderControls
       volume={currentVolume}
       dndEnabled={currentDndEnabled}
-      isDeviceConnected={isDeviceConnected}
+      isDeviceConnected={deviceConnected}
       onVolumeChange={(value) => {
         setVolume(value);
         dispatchQuickAction('volume', value);
       }}
-      onWifi={() => dispatchQuickAction('wifi')}
       onDnd={() => dispatchQuickAction('dnd')}
-      onSetTime={() => dispatchQuickAction('time')}
-      onUpdate={() => dispatchQuickAction('update')}
     />,
   );
 
-  const dispatchQuickAction = (type: 'volume' | 'wifi' | 'dnd' | 'time' | 'update', value?: number) => {
+  const dispatchQuickAction = (type: 'volume' | 'wifi' | 'dnd' | 'update', value?: number) => {
     window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type, ...(value === undefined ? {} : { value }) } }));
   };
 
@@ -141,11 +144,20 @@ export default function HomeScreen({ user }: { user: User }) {
       deviceBindingHost.dataset.mounted = 'true';
     }
 
-    const host = dashboard.querySelector<HTMLElement>('#quick-actions-root');
-    if (!host) return;
+    const deviceFirmwareActionsHost = dashboard.querySelector<HTMLElement>('#device-firmware-actions-root');
+    if (deviceFirmwareActionsHost) {
+      deviceFirmwareActionsRoot.current = createRoot(deviceFirmwareActionsHost);
+      deviceFirmwareActionsRoot.current.render(<DeviceFirmwareActions
+        onWifi={(ssid, password) => window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type: 'wifi', ssid, password } }))}
+        onUpdate={() => dispatchQuickAction('update')}
+      />);
+    }
 
-    quickActionsRoot.current = createRoot(host);
-    renderQuickActions(volume, Boolean(storedDndEnabled));
+    const headerControlsHost = dashboard.querySelector<HTMLElement>('#header-controls-root');
+    if (headerControlsHost) {
+      headerControlsRoot.current = createRoot(headerControlsHost);
+      renderHeaderControls(volume, Boolean(storedDndEnabled), isDeviceConnected);
+    }
     const settingsHost = dashboard.querySelector<HTMLElement>('#settings-root');
     if (settingsHost) {
       settingsRoot.current = createRoot(settingsHost);
@@ -153,12 +165,14 @@ export default function HomeScreen({ user }: { user: User }) {
     }
 
     return () => {
-      quickActionsRoot.current?.unmount();
-      quickActionsRoot.current = null;
+      headerControlsRoot.current?.unmount();
+      headerControlsRoot.current = null;
       settingsRoot.current?.unmount();
       settingsRoot.current = null;
       deviceBindingRoot.current?.unmount();
       deviceBindingRoot.current = null;
+      deviceFirmwareActionsRoot.current?.unmount();
+      deviceFirmwareActionsRoot.current = null;
       configureClockRoot.current?.unmount();
       configureClockRoot.current = null;
       configureSideRoot.current?.unmount();
@@ -172,7 +186,7 @@ export default function HomeScreen({ user }: { user: User }) {
   }, [user]);
 
   useEffect(() => {
-    renderQuickActions(volume, Boolean(storedDndEnabled));
+    renderHeaderControls(volume, Boolean(storedDndEnabled), isDeviceConnected);
   }, [volume, storedDndEnabled, isDeviceConnected]);
 
   useEffect(() => {
