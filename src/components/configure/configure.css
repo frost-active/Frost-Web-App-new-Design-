@@ -227,6 +227,11 @@
   50%{box-shadow:0 0 0 5px rgba(93,202,165,.16);border-color:var(--mint)}
 }
 @media(prefers-reduced-motion:reduce){#page-configure .clock-toolbar .clock-sync.needs-sync:not(:disabled),#page-configure .cfg-habits-sync.needs-sync:not(:disabled){animation:none;box-shadow:0 0 0 2px rgba(93,202,165,.22)}}
+@media(max-width:680px){
+  #page-configure .cfg-daygrid{display:flex;flex-direction:column}
+  #page-configure .cfg-daygrid>.cfg-daycol{display:contents}
+  #page-configure #configure-challenges-root{order:99}
+}
 /* shared-input tweaks */
 #page-configure .cfg-chipb.cfg-x{background:none}
 #page-configure .cfg-ctimein[aria-invalid=true]{outline:1px solid #E4674F;border-radius:4px}

@@ -29,16 +29,21 @@ const timeToQuarterHourSlot = (value: number): number => {
 };
 
 const quarterHourSlotToTime = (slot: number, mer: string): number => {
-  const hour = Math.floor(slot / 4) || 12;
-  const minute = (slot % 4) * 15;
+  const clockSlot = (slot + (mer === 'AM' ? 16 : 0)) % 48;
+  const hour = Math.floor(clockSlot / 4) || 12;
+  const minute = (clockSlot % 4) * 15;
   return from12(hour, minute, mer);
 };
+
+const timeToCueSliderPosition = (value: number, mer: string): number =>
+  (timeToQuarterHourSlot(value) - (mer === 'AM' ? 16 : 0) + 48) % 48;
 
 /** 48-position, 15-minute cue slider with AM/PM at its trailing edge. */
 export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>) {
   const initialMer = to12(value).mer;
-  const [mer, setMer] = useState<string>(initialMer);
-  const [slot, setSlot] = useState(() => timeToQuarterHourSlot(value));
+  const [clockTime, setClockTime] = useState(value);
+  const mer = to12(clockTime).mer;
+  const [slot, setSlot] = useState(() => timeToCueSliderPosition(value, initialMer));
   const slotRef = useRef(slot);
   const merRef = useRef(mer);
   const latest = useRef(onCommit);
@@ -46,10 +51,10 @@ export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>
   const marksId = `cue-time-marks-${useId()}`;
   latest.current = onCommit;
   useEffect(() => {
-    const nextSlot = timeToQuarterHourSlot(value);
     const nextMer = to12(value).mer;
+    const nextSlot = timeToCueSliderPosition(value, nextMer);
+    setClockTime(value);
     setSlot(nextSlot);
-    setMer(nextMer);
     slotRef.current = nextSlot;
     merRef.current = nextMer;
   }, [value]);
@@ -67,13 +72,19 @@ export function TimeChip({ value, label, onCommit }: Omit<TimeProps, 'disabled'>
   const updateSlot = (next: number) => {
     slotRef.current = next;
     setSlot(next);
+    setClockTime(quarterHourSlotToTime(next, merRef.current));
   };
-  const setPeriod = (period: string) => {
+  const setPeriod = (period: 'AM' | 'PM') => {
+    const { h12, m } = to12(clockTime);
+    const nextClockTime = from12(h12, m, period);
+    const nextSlot = timeToCueSliderPosition(nextClockTime, period);
     merRef.current = period;
-    setMer(period);
-    latest.current(quarterHourSlotToTime(slotRef.current, period));
+    slotRef.current = nextSlot;
+    setSlot(nextSlot);
+    setClockTime(nextClockTime);
+    latest.current(nextClockTime);
   };
-  const selectedTime = quarterHourSlotToTime(slot, mer);
+  const selectedTime = clockTime;
   return (
     <div className={cn('timecontrol')}>
       <output className={cn('timevalue')} aria-live="polite">{timeText(selectedTime)} <small>{mer}</small></output>

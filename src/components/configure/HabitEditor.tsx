@@ -26,7 +26,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
   const p = { h, store, snap };
   return (
     <div className={cn('card')}>
-      <h2>Editing <span className={cn('r')} style={{ color: h.color }}>{h.name}</span></h2>
+      <h2>Configuration<span className={cn('r')} style={{ color: h.color }}>{h.name}</span></h2>
       <div className={cn('medform')}>
         {h.k === 'water' && <>
           <SliderField label="Daily goal" value={Math.round(h.target) || 2500} min={0} max={6000} step={100} unit="ml" boxWidth={64}
