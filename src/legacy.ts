@@ -3,7 +3,7 @@ import { CHAR_UUID, FrostBleClient, requestFrostDevice } from './ble';
 import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFirmwareInfo } from './DeviceFirmwareSync';
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
-import { ensureDeviceBindingMatchesUser, saveDailyGoal, saveDeviceConfig, saveDeviceName, saveDndStatus } from './DeviceConfigSync';
+import { ensureDeviceBindingMatchesUser, getSavedDeviceConfig, saveDailyGoal, saveDeviceConfig, saveDeviceName, saveDndStatus } from './DeviceConfigSync';
 import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
@@ -106,12 +106,17 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       <button data-p="configure" aria-current="true">Configure</button>
       <button data-p="stats">Statistics</button>
       <button data-p="device">Device</button>
-      <button data-p="settings">Settings</button>
     </nav>
     <div class="hspace"></div>
     <div id="header-controls-root"></div>
     <button class="gridtog on" id="gridtog" aria-pressed="true">Grid<span class="sw"></span></button>
-    <button class="chip" id="chip" type="button" aria-label="Not connected. Connect to FROST Aura" title="Connect to FROST Aura"><span class="dot" aria-hidden="true"></span><span id="chipTxt">Not connected · Connect</span></button>
+    <button class="chip" id="chip" type="button" aria-label="Bluetooth disconnected. Connect to FROST Aura" title="Connect to FROST Aura">
+      <svg class="bluetooth-icon is-disconnected" id="chipBluetooth" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="m6.5 6.5 11 11L12 22V2l5.5 5.5-11 11" />
+        <path class="bluetooth-slash" d="M4 4 20 20" />
+      </svg>
+      <span id="chipTxt">Connect</span>
+    </button>
     <div class="firmware-notifications">
       <button class="notification-bell" id="firmwareBell" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="firmwareNotice" title="Notifications">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
@@ -217,6 +222,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
         <div class="drow"><div class="t"><p>FROST Aura</p><small>MAC Address: <span id="dMac">Not available</span></small><small class="firmware-version-line">Firmware Version: <span id="dFirmwareVersion">Not available</span><span class="firmware-update-label" id="firmwareUpdateLabel" role="status" hidden>Firmware Update available</span><span id="device-firmware-actions-root"></span></small><small>Web App Version: 3.0</small></div>
         </div>
       </div>
+      <div id="device-bottle-controls-root"></div>
       <div class="card"><h2>Rename device</h2>
         <div class="drow"><div class="t"><p>Device name</p><small>Use a friendly name for this Aura.</small></div>
           <div class="device-name-actions">
@@ -229,10 +235,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
           </div>
         </div>
       </div>
-      <div class="card"><h2>Schedule comparison <span class="r">clock vs what Aura holds</span></h2>
-        <div style="overflow-x:auto"><table class="difftable"><thead><tr><th>Reminder</th><th>On device</th><th>On clock</th></tr></thead>
-          <tbody id="diffBody"></tbody></table></div>
-      </div>
       <div class="card"><h2>Backup <span class="r">schema_ver 6 · sent to device</span></h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn" id="dExport">Export JSON</button>
@@ -241,9 +243,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
     </div>
   </section>
 
-  <section id="page-settings" class="hide">
-    <div id="settings-root"></div>
-  </section>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -1765,19 +1764,6 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   };
 }
 function snapSig(c){return `${c.on?'on':'off'} · ${c.times.length}× · ${c.dur}m · ${c.times.map(t=>t.toFixed(2)).join(',')}`;}
-function diffRows(){
-  const body=document.getElementById('diffBody');const rows=[];
-  CATS.forEach(c=>{const d=device.find(x=>x.k===c.k);
-    const now=snapSig(c);
-    const was=`${d.on?'on':'off'} · ${d.times.length}× · ${d.dur}m · ${d.times.map(t=>t.toFixed(2)).join(',')}`;
-    if(now!==was){
-      const label=`${c.on?'on':'off'} · ${c.times.length}× · ${c.dur}m`;
-      const wl=`${d.on?'on':'off'} · ${d.times.length}× · ${d.dur}m`;
-      rows.push(`<tr><td>${c.label}</td><td class="muted">${wl}</td><td class="chg">${label}${JSON.stringify(c.times)!==JSON.stringify(d.times)?' · times changed':''}</td></tr>`);
-    }});
-  body.innerHTML=rows.length?rows.join(''):`<tr><td colspan="3" class="muted" style="text-align:center;padding:20px">Clock and device match.</td></tr>`;
-}
-
 /* Shared schedule sync used by the Configure clock toolbar */
 let scheduleSyncInFlight=false;
 function setSyncButtonsBusy(busy){
@@ -1807,28 +1793,50 @@ async function syncScheduleToDevice(){
     toast('Sign in to your account before syncing this device.');
     return;
   }
-  let ownershipCheck;
-  try{
-    ownershipCheck = await ensureDeviceBindingMatchesUser(deviceMac, authenticatedUser.uid);
-  }catch(error){
-    console.error('Unable to verify the FROST device binding.',error);
-    cfgSyncFailed=true; notifyConfigure();
-    toast('Could not verify your device. Check your connection and try Sync again.');
-    return;
-  }
-  if(!ownershipCheck.allowed){
-    toast(ownershipCheck.message);
-    return;
-  }
-  const duplicateRemovals = sanitizeDuplicateCueTimes();
-  if(duplicateRemovals>0){
-    toast('Duplicated will be removed and Sync to the device');
-  }
   setSyncButtonsBusy(true);
   try{
+    let ownershipCheck;
+    try{
+      ownershipCheck = await ensureDeviceBindingMatchesUser(deviceMac, authenticatedUser.uid);
+    }catch(error){
+      console.error('Unable to verify the FROST device binding.',error);
+      cfgSyncFailed=true; notifyConfigure();
+      toast('Could not verify device ownership. Nothing was sent or saved; check your connection and try again.');
+      return;
+    }
+    if(!ownershipCheck.allowed){
+      toast(ownershipCheck.message);
+      return;
+    }
+    const duplicateRemovals = sanitizeDuplicateCueTimes();
+    if(duplicateRemovals>0)toast('Duplicate cue times were removed before syncing.');
+
     const sentSnapshot=snapshot();
     const syncedConfig=toDeviceJSON();
     const cloudConfig=JSON.parse(JSON.stringify(toDeviceJSON({includeUiMeta:true})));   // the database rejects `undefined`
+    let savedConfig;
+    try{
+      savedConfig=await getSavedDeviceConfig(authenticatedUser.uid,deviceMac);
+    }catch(error){
+      console.error('Unable to check the saved FROST configuration.',error);
+      cfgSyncFailed=true; notifyConfigure();
+      toast('Could not check your saved schedule. Nothing was sent or saved; check your connection and try again.');
+      return;
+    }
+    if(savedConfig&&stableStringify(cloudConfig)===stableStringify(savedConfig)){
+      liveConfigSynced=true;
+      device=sentSnapshot;
+      cfgSyncFailed=false;
+      syncedSig=lastDocSig=stableStringify(cloudConfig);
+      lastSyncedConfig=JSON.parse(JSON.stringify(savedConfig));
+      refreshDirty();
+      toast('Your schedule is already up to date. Nothing was sent to Aura or saved.');
+      return;
+    }
+    if(!bleClient?.isConnected){
+      toast('Your Aura disconnected before syncing. No changes were sent or saved.');
+      return;
+    }
     await bleClient.sendJsonConfiguration(syncedConfig);
     // It is on Aura now — but it only counts as synced once it is saved to the account as well.
     const saved=await saveDeviceConfig(deviceMac,cloudConfig,authenticatedUser.uid,authenticatedUser.email||'');
@@ -1881,7 +1889,6 @@ function renderDevice(){
     setSyncButtonsBusy(true);
   }
   renderDeviceName();
-  diffRows();
   document.getElementById('jsonOut').textContent=JSON.stringify(toDeviceJSON(),null,2);
 }
 function renderDeviceName(){
@@ -2041,20 +2048,6 @@ window.addEventListener('frost:toast',event=>{
   if(detail?.message)toast(detail.message);
 });
 
-/* ================= settings ================= */
-window.addEventListener('frost-settings-change',event=>{
-  const seconds=Math.max(1,Math.min(3600,Math.round(Number(event.detail?.displaySeconds)||60)));
-  const milliseconds=seconds*1000;
-  ['hydration','eye','stretch','walk','medication'].forEach(key=>{RAW.reminders[key].display_ms=milliseconds;});
-  RAW.reminders.custom.events.forEach(eventItem=>{eventItem.show_ms=milliseconds;});
-  RAW.bottle_clean.display_ms=milliseconds;
-  RAW.reminders.meditation.display_sec=seconds;
-  CATS.filter(c=>['water','eye','stretch','walk','meds','clean'].includes(c.k)).forEach(c=>{c.dur=seconds/60;});
-  const custom=CATS.find(c=>c.k==='custom'); custom?.groups?.forEach(group=>{group.dur=seconds/60;});
-  const meditation=CATS.find(c=>c.k==='meditation'); if(meditation)meditation.dur=seconds/60;
-  if(page==='device')renderDevice();
-});
-
 /* ================= quick actions ================= */
 async function runQuickCommand(command, successMessage){
   if(!bleClient?.isConnected){toast('Connect a FROST Aura device first');return;}
@@ -2101,11 +2094,14 @@ window.addEventListener('frost-quick-action',event=>{
 /* ================= chrome: tabs, chip, grid, dirty ================= */
 function setChip(){
   const chip=document.getElementById('chip');
+  const bluetooth=document.getElementById('chipBluetooth');
   chip.classList.toggle('live',connected);
   chip.disabled=Boolean(connectionBusy);
   const busyLabel=connectionBusy==='disconnecting'?'Disconnecting…':'Connecting…';
-  document.getElementById('chipTxt').textContent=connectionBusy?busyLabel:connected?'Connected · Disconnect':'Not connected · Connect';
-  chip.setAttribute('aria-label',connectionBusy?`${busyLabel} FROST Aura`:connected?'Connected. Disconnect FROST Aura':'Not connected. Connect to FROST Aura');
+  document.getElementById('chipTxt').textContent=connectionBusy?busyLabel:connected?'Disconnect':'Connect';
+  bluetooth.classList.toggle('is-disconnected',!connected);
+  chip.setAttribute('aria-busy',String(Boolean(connectionBusy)));
+  chip.setAttribute('aria-label',connectionBusy?`${busyLabel} FROST Aura`:connected?'Bluetooth connected. Disconnect from FROST Aura':'Bluetooth disconnected. Connect to FROST Aura');
   chip.title=connectionBusy?`${busyLabel} FROST Aura`:connected?'Disconnect from FROST Aura':'Connect to FROST Aura';
 }
 function refreshDirty(){
@@ -2129,7 +2125,7 @@ function refreshDirty(){
 function show(p){
   page=p;
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.p===p));
-  ['configure','stats','device','settings'].forEach(x=>{
+  ['configure','stats','device'].forEach(x=>{
     const el=document.getElementById('page-'+x);
     const active=x===p;
     el.classList.toggle('hide',!active);

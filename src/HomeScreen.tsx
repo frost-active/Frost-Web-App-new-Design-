@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { mountFrost } from './legacy';
 import HeaderControls from './components/HeaderControls';
 import DeviceFirmwareActions from './components/DeviceFirmwareActions';
-import Settings from './components/Settings';
+import DeviceBottleControls from './components/DeviceBottleControls';
 import DeviceBinding from './components/DeviceBinding';
 import { ConfigureClockPanel, ConfigureSidePanel, ConfigureChallengesPanel } from './pages/ConfigurePage';
 import { MyDayStore } from './components/configure/store';
@@ -14,7 +14,7 @@ import type { User } from 'firebase/auth';
 export default function HomeScreen({ user }: { user: User }) {
   const dashboardRef = useRef<HTMLDivElement>(null);
   const headerControlsRoot = useRef<Root | null>(null);
-  const settingsRoot = useRef<Root | null>(null);
+  const bottleControlsRoot = useRef<Root | null>(null);
   const deviceBindingRoot = useRef<Root | null>(null);
   const deviceFirmwareActionsRoot = useRef<Root | null>(null);
   const configureClockRoot = useRef<Root | null>(null);
@@ -22,7 +22,6 @@ export default function HomeScreen({ user }: { user: User }) {
   const configureChallengesRoot = useRef<Root | null>(null);
   const myDayStore = useRef<MyDayStore | null>(null);
   const [volume, setVolume] = useState(30);
-  const [displaySeconds, setDisplaySeconds] = useState(60);
   const [macAddress, setMacAddress] = useState<string | null>(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
   const { config: storedDeviceConfig, lastSyncedAt, dndEnabled: storedDndEnabled, deviceName: storedDeviceName, loading: configLoading, error: configError, reload: reloadConfig } = useDeviceConfig(macAddress, user.uid);
@@ -101,15 +100,8 @@ export default function HomeScreen({ user }: { user: User }) {
     window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type, ...(value === undefined ? {} : { value }) } }));
   };
 
-  const renderSettings = (seconds: number, deviceConnected: boolean) => settingsRoot.current?.render(
-    <Settings
-      displaySeconds={seconds}
-      isDeviceConnected={deviceConnected}
-      onDisplaySecondsChange={(value) => {
-        setDisplaySeconds(value);
-        window.dispatchEvent(new CustomEvent('frost-settings-change', { detail: { displaySeconds: value } }));
-      }}
-    />,
+  const renderBottleControls = (deviceConnected: boolean) => bottleControlsRoot.current?.render(
+    <DeviceBottleControls isDeviceConnected={deviceConnected} />,
   );
 
   useEffect(() => {
@@ -144,6 +136,12 @@ export default function HomeScreen({ user }: { user: User }) {
       deviceBindingHost.dataset.mounted = 'true';
     }
 
+    const bottleControlsHost = dashboard.querySelector<HTMLElement>('#device-bottle-controls-root');
+    if (bottleControlsHost) {
+      bottleControlsRoot.current = createRoot(bottleControlsHost);
+      renderBottleControls(isDeviceConnected);
+    }
+
     const deviceFirmwareActionsHost = dashboard.querySelector<HTMLElement>('#device-firmware-actions-root');
     if (deviceFirmwareActionsHost) {
       deviceFirmwareActionsRoot.current = createRoot(deviceFirmwareActionsHost);
@@ -158,17 +156,11 @@ export default function HomeScreen({ user }: { user: User }) {
       headerControlsRoot.current = createRoot(headerControlsHost);
       renderHeaderControls(volume, Boolean(storedDndEnabled), isDeviceConnected);
     }
-    const settingsHost = dashboard.querySelector<HTMLElement>('#settings-root');
-    if (settingsHost) {
-      settingsRoot.current = createRoot(settingsHost);
-      renderSettings(displaySeconds, isDeviceConnected);
-    }
-
     return () => {
       headerControlsRoot.current?.unmount();
       headerControlsRoot.current = null;
-      settingsRoot.current?.unmount();
-      settingsRoot.current = null;
+      bottleControlsRoot.current?.unmount();
+      bottleControlsRoot.current = null;
       deviceBindingRoot.current?.unmount();
       deviceBindingRoot.current = null;
       deviceFirmwareActionsRoot.current?.unmount();
@@ -190,8 +182,8 @@ export default function HomeScreen({ user }: { user: User }) {
   }, [volume, storedDndEnabled, isDeviceConnected]);
 
   useEffect(() => {
-    renderSettings(displaySeconds, isDeviceConnected);
-  }, [displaySeconds, isDeviceConnected]);
+    renderBottleControls(isDeviceConnected);
+  }, [isDeviceConnected]);
 
   return <main ref={dashboardRef} aria-label="FROST Aura device dashboard" />;
 }

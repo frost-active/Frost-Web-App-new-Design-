@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { collection, doc, getDoc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocFromServer, getDocs, onSnapshot, query, runTransaction, serverTimestamp, setDoc, Timestamp, where } from 'firebase/firestore';
 import { firebaseDb } from './firebase';
 import { sanitizeMac } from './components/DeviceBinding';
 import type { DeviceConfig } from './config/defaultConfig';
@@ -77,6 +77,13 @@ export async function saveDndStatus(uid: string, macAddress: string | null, dndE
 }
 
 export type SaveDeviceConfigResult = { ok: true } | { ok: false; message: string };
+
+export async function getSavedDeviceConfig(uid: string, macAddress: string): Promise<DeviceConfig | null> {
+  const snapshot = await getDocFromServer(configDocument(uid, macAddress));
+  if (!snapshot.exists()) return null;
+  const config = (snapshot.data() as Partial<DeviceConfigDocument>).config;
+  return config && typeof config === 'object' ? config : null;
+}
 
 /** How long a save may take before it is reported as failed instead of hanging (for example when the connection dropped). */
 const SAVE_TIMEOUT_MS = 20000;

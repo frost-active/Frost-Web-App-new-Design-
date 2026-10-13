@@ -1,7 +1,6 @@
-type Difference = { label: string; onDevice: string; onClock: string; changed?: boolean };
-type Props = { connected: boolean; serial: string; battery: number; differences: Difference[]; json: string; onConnect: () => void; onExport: () => void; onReset: () => void };
+type Props = { connected: boolean; serial: string; battery: number; json: string; onConnect: () => void; onExport: () => void; onReset: () => void };
 
-export default function DevicePage({ connected, serial, battery, differences, json, onConnect, onExport, onReset }: Props) {
+export default function DevicePage({ connected, serial, battery, json, onConnect, onExport, onReset }: Props) {
   return (
     <section id="page-device">
       <div className="ptitle">Device</div>
@@ -14,23 +13,6 @@ export default function DevicePage({ connected, serial, battery, differences, js
             <div className="batt"><i style={{ '--p': `${battery}%` } as React.CSSProperties} /></div>
             <span className={`pill${connected ? ' ok' : ''}`} id="dState">{connected ? 'Connected' : 'Offline'}</span>
             <button className="btn" id="dConnect" type="button" onClick={onConnect}>{connected ? 'Disconnect' : 'Connect'}</button>
-          </div>
-        </div>
-        <div className="card">
-          <h2>Schedule comparison <span className="r">clock vs what Aura holds</span></h2>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="difftable">
-              <thead><tr><th>Reminder</th><th>On device</th><th>On clock</th></tr></thead>
-              <tbody id="diffBody">
-                {differences.length ? differences.map((difference) => (
-                  <tr key={difference.label}>
-                    <td>{difference.label}</td>
-                    <td className="muted">{difference.onDevice}</td>
-                    <td className={difference.changed ? 'chg' : ''}>{difference.onClock}{difference.changed ? ' · times changed' : ''}</td>
-                  </tr>
-                )) : <tr><td colSpan={3} className="muted" style={{ textAlign: 'center', padding: 20 }}>Clock and device match.</td></tr>}
-              </tbody>
-            </table>
           </div>
         </div>
         <div className="card">

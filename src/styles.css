@@ -26,8 +26,10 @@
   nav.tabs button[aria-current=true]{background:var(--panel2);color:var(--ink);font-weight:500}
   .hspace{margin-left:auto}
   .chip{display:flex;align-items:center;gap:7px;border:1px solid var(--faint);border-radius:99px;padding:6px 12px;font:inherit;font-size:12px;color:var(--muted);background:transparent;text-align:left;cursor:pointer;transition:.15s}
-  .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--muted)}
-  .chip.live{color:var(--ink);border-color:rgba(93,202,165,.35)} .chip.live .dot{background:var(--mint)}
+  .chip .bluetooth-icon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .chip .bluetooth-slash{display:none}
+  .chip .bluetooth-icon.is-disconnected .bluetooth-slash{display:block}
+  .chip.live{color:var(--ink);border-color:rgba(93,202,165,.35)}
   .chip:hover:not(:disabled){border-color:var(--sky);color:var(--ink)}
   .chip:disabled{opacity:.75;cursor:wait}
   .header-controls{display:flex;align-items:center;gap:12px;flex:none}
@@ -77,17 +79,12 @@
   .ptitle{font-family:Syne;font-weight:700;font-size:18px;margin-bottom:2px}
   .psub{font-size:12.5px;color:var(--muted);margin-bottom:20px;max-width:640px;line-height:1.55}
 
-  /* ---------- SETTINGS ---------- */
-  .settings-stack{max-width:680px;display:flex;flex-direction:column;gap:14px}
-  .settings-card{max-width:680px}
-  .settings-lead{font-size:13px;color:var(--ink);margin:-4px 0 18px;line-height:1.5}
-  .settings-action-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
-  .settings-action-row .btn{min-width:200px}
-  .settings-field{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid var(--faint);padding-top:16px;color:var(--ink);font-size:13px;font-weight:600}
-  .settings-number{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-weight:400;flex:0 0 auto;max-width:100%}
-  .settings-number input{width:90px;min-width:90px;max-width:90px;flex:0 0 90px;background:var(--panel2);border:1px solid var(--faint);border-radius:8px;color:var(--ink);font:700 15px Syne;padding:9px 10px;text-align:right}
-  .settings-number input:focus{outline:none;border-color:var(--sky)}
-  .settings-help{color:var(--muted);font-size:11.5px;line-height:1.55;margin:14px 0 0;max-width:520px}
+  /* ---------- DEVICE BOTTLE CONTROLS ---------- */
+  .device-bottle-controls{max-width:680px}
+  .device-bottle-controls-lead{font-size:13px;color:var(--ink);margin:-4px 0 18px;line-height:1.5}
+  .device-bottle-controls-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .device-bottle-controls-actions .btn{min-width:200px}
+  .device-bottle-controls-help{color:var(--muted);font-size:11.5px;line-height:1.55;margin:14px 0 0;max-width:520px}
   /* ---------- DEVICE BINDING ---------- */
   #home-binding-root{position:relative;z-index:20}
   .binding-card,.binding-status,.binding-error,.binding-details{background:var(--panel);border:1px solid var(--faint);border-radius:14px;padding:14px 16px;margin:0 0 14px;color:var(--ink)}
