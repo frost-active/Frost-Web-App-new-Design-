@@ -68,6 +68,8 @@ export type ConfigureView = {
   restoreToken: number;
   /** streak length of each synced habit, worked out from its synced validity window */
   syncedStreakDays: Record<string, number>;
+  /** start and end dates of each habit's synced streak validity window */
+  streakWindows: Record<string, { start: string; end: string }>;
   /** when the schedule was last synced (latest configHistory entry) and each habit's streak length in that entry; drives the Day N counter */
   lastSync: { at: number; habitIds: string[] | null; streakDays: Record<string, number> } | null;
   sync: CfgSyncState;

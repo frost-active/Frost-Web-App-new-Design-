@@ -97,6 +97,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
 .device-name-actions [hidden] { display: none !important; }
 .device-name-actions #dRenameInput[readonly] { opacity: .82; }
 .device-name-actions #dRenameEdit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.device-rename-status { margin-top: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 </style>
 <div class="wrap">
@@ -193,7 +194,10 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       <button data-r="week" aria-pressed="false">Week</button>
       <button data-r="month" aria-pressed="false">Month</button>
     </div>
-    <div class="stats-actions"><button class="btn" id="statsSync" type="button">Sync statistics</button><span class="muted" id="statsSyncStatus"></span></div>
+    <div class="stats-actions"><button class="btn stats-sync-btn" id="statsSync" type="button" title="Sync statistics from your connected FROST Aura" aria-label="Sync statistics">
+      <svg class="stats-sync-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7v5h-5M4 17v-5h5" /><path d="M5.6 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.4-3" /></svg>
+      <span>Sync statistics</span>
+    </button><span class="muted" id="statsSyncStatus" role="status" aria-live="polite"></span></div>
     <div class="statgrid">
       <div class="card" style="text-align:center">
         <h2 style="text-align:left">Adherence</h2>
@@ -227,13 +231,14 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
         <div class="drow"><div class="t"><p>Device name</p><small>Use a friendly name for this Aura.</small></div>
           <div class="device-name-actions">
             <input id="dRenameInput" type="text" value="Frost 1" maxlength="32" readonly aria-label="Device name" style="min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);color:var(--text)">
-            <button class="btn sm" id="dRenameEdit" type="button" aria-label="Edit device name" title="Edit device name" disabled>
+            <button class="btn sm" id="dRenameEdit" type="button" aria-label="Edit device name" title="Edit device name">
               <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" /></svg>
             </button>
             <button class="btn sm pri" id="dRenameSave" type="button" hidden>Save</button>
             <button class="btn sm" id="dRenameCancel" type="button" hidden>Cancel</button>
           </div>
         </div>
+        <p class="device-rename-status" id="dRenameStatus" role="status" aria-live="polite" hidden></p>
       </div>
       <div class="card"><h2>Backup <span class="r">schema_ver 6 · sent to device</span></h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
@@ -798,6 +803,25 @@ function cfgStreakWindowFor(id,days,startOverride){
   const pad=n=>String(n).padStart(2,'0');
   return {start, end:`${result.getFullYear()}-${pad(result.getMonth()+1)}-${pad(result.getDate())}`};
 }
+function cfgGetStreakWindows(){
+  const windows={};
+  CATS.forEach(category=>{
+    if((category.k==='meds'||category.k==='custom')&&category.groups){
+      category.groups.forEach((group,index)=>{
+        const id=`${category.k}:${group.id??index}`;
+        if(category.k==='custom'&&group.type==='absolute'){
+          const date=group.date||localISODate();
+          windows[id]={start:date,end:date};
+        }else{
+          windows[id]=cfgStreakWindowFor(id,group.days,category.k==='meds'?(group.start||localISODate()):undefined);
+        }
+      });
+      return;
+    }
+    windows[category.k]=cfgStreakWindowFor(category.k,category.days);
+  });
+  return windows;
+}
 function notifyConfigure(){cfgVersion++;cfgView=null;cfgListeners.forEach(l=>l());}
 function getConfigureView(){
   if(cfgView)return cfgView;
@@ -834,7 +858,7 @@ function getConfigureView(){
     nowH:NOW_H, dnd:[DND[0],DND[1]], dndOn:Boolean(dndOn),
     pomo:{focus:RAW.pomodoro.focus_min,brk:RAW.pomodoro.break_min,cycles:RAW.pomodoro.cycles},
     today, synced:syncedConfigAvailable, ackToday, ackHistory,
-    syncedIds:cfgSyncedHabitIds, restoreToken:cfgRestoreToken, syncedStreakDays:cfgSyncedStreakDays,
+    syncedIds:cfgSyncedHabitIds, restoreToken:cfgRestoreToken, syncedStreakDays:cfgSyncedStreakDays, streakWindows:cfgGetStreakWindows(),
     lastSync:(()=>{const d=cfgDayLocal&&(!cfgDay||cfgDayLocal.at>cfgDay.at)?cfgDayLocal:cfgDay;return d?{at:d.at,habitIds:d.habitIds,streakDays:d.streakDays}:null;})(),
     sync:{
       status:cfgRestoreError?'error':(cfgLoad.status==='empty'&&cfgLastSyncedAt)?'ready':cfgLoad.status,
@@ -1487,10 +1511,11 @@ function renderStats(){ringChart();kpis();digest();renderAckPanel();}
 async function syncStatistics(mode:'today'|'history'='today'){
   const status=document.getElementById('statsSyncStatus'), button=document.getElementById('statsSync') as HTMLButtonElement|null;
   if(!bleClient?.isConnected||!deviceMac){toast('Connect a FROST Aura device first');return;}
-  if(button)button.disabled=true; if(status)status.textContent='Syncing…';
+  if(button){button.disabled=true;button.classList.add('is-syncing');button.setAttribute('aria-busy','true');}
+  if(status)status.textContent='Syncing…';
   try{setStoredStatistics(await syncDeviceStatistics(bleClient,deviceMac,mode,authenticatedUser?.uid),true);if(status)status.textContent='Synced from device';}
   catch(error){if(status)status.textContent='Sync failed';toast(error instanceof Error?error.message:'Statistics sync failed');}
-  finally{if(button)button.disabled=false;}
+  finally{if(button){button.disabled=false;button.classList.remove('is-syncing');button.setAttribute('aria-busy','false');}}
 }
 
 /* ================= DEVICE ================= */
@@ -1901,7 +1926,7 @@ function renderDeviceName(){
   if(renameEditing&&!canRename)renameEditing=false;
   if(!renameEditing)input.value=storedDeviceName||bleClient?.name||'Frost 1';
   input.readOnly=!renameEditing;
-  if(edit)edit.disabled=!canRename||renameBusy;
+  if(edit)edit.disabled=renameBusy;
   if(save)save.disabled=!canRename||renameBusy;
   if(cancel)cancel.disabled=renameBusy;
   if(edit)edit.hidden=renameEditing;
@@ -2017,7 +2042,15 @@ async function toggleDeviceConnection(){
 }
 document.getElementById('chip').addEventListener('click',()=>void toggleDeviceConnection());
 document.getElementById('dRenameEdit').addEventListener('click',()=>{
-  if(!bleClient?.isConnected){toast('Connect a FROST Aura device before renaming it');return;}
+  if(!bleClient?.isConnected){
+    setDeviceRenameNotice('Connect your FROST Aura to edit its name. You can still view its saved name while it is disconnected.');
+    return;
+  }
+  if(!deviceMac||!authenticatedUser?.uid){
+    setDeviceRenameNotice('Connect and bind your FROST Aura to your account before changing its name.');
+    return;
+  }
+  setDeviceRenameNotice('');
   setRenameEditing(true);
 });
 document.getElementById('dRenameSave').addEventListener('click',()=>{void saveDeviceRename();});
@@ -2026,6 +2059,12 @@ document.getElementById('dRenameInput').addEventListener('keydown',event=>{
   if(event.key==='Enter'&&renameEditing){event.preventDefault();void saveDeviceRename();}
   if(event.key==='Escape'&&renameEditing){event.preventDefault();setRenameEditing(false);}
 });
+function setDeviceRenameNotice(message:string){
+  const notice=document.getElementById('dRenameStatus');
+  if(!notice)return;
+  notice.textContent=message;
+  notice.hidden=!message;
+}
 document.getElementById('cfgSync').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgSyncHabits').addEventListener('click',()=>{ void syncScheduleToDevice(); });
 document.getElementById('cfgUndo').addEventListener('click',()=>{

@@ -1,7 +1,7 @@
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn, cssVars } from './format';
 import { ActiveDays, NameField, SliderField, TimeChip } from './fields';
-import { MAX_CUES, MED_MAX_DOSES, type HabitVM, type MyDayStore, type Snapshot } from './store';
+import { displayName, MAX_CUES, MED_MAX_DOSES, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 export type EditorProps = { h: HabitVM; store: MyDayStore; snap: Snapshot };
 
@@ -23,9 +23,43 @@ export function CueCount({ h, store }: EditorProps) {
 }
 
 /* ---- streak length ---- */
-export function StreakLength({ h, store }: EditorProps) {
-  return <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" showCount={false} showHelp={false}
-    onCommit={(v) => store.setStreakDays(h, v)} />;
+export function StreakLength({ h, store, snap }: EditorProps) {
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [dateDraft, setDateDraft] = useState(h.streakStartDate);
+  useEffect(() => {
+    setScheduleOpen(false);
+    setDateDraft(h.streakStartDate);
+  }, [h.id, h.streakStartDate]);
+  const openSchedule = () => {
+    setDateDraft(h.streakStartDate < snap.today ? snap.today : h.streakStartDate);
+    setScheduleOpen(true);
+  };
+  return <>
+    <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" showCount={false} showHelp={false}
+      onCommit={(v) => store.setStreakDays(h, v)} />
+    <div className={cn('msec')} style={{ marginBottom: 11 }}>
+      {h.streakStartScheduled && !scheduleOpen && <p className={cn('mhelp')} style={{ marginBottom: 8 }}>
+        Scheduled for {new Date(`${h.streakStartDate}T00:00:00`).toLocaleDateString()}
+      </p>}
+      <button type="button" className={cn('btn sm')} aria-expanded={scheduleOpen} aria-controls={`streak-start-${h.id}`}
+        onClick={() => scheduleOpen ? setScheduleOpen(false) : openSchedule()}>
+        {scheduleOpen ? 'Close date picker' : h.streakStartScheduled ? 'Change schedule' : 'Schedule'}
+      </button>
+      {scheduleOpen && <div id={`streak-start-${h.id}`} style={{ marginTop: 9 }}>
+        <div className={cn('mlabel')}><label htmlFor={`streak-start-date-${h.id}`}>Start date</label></div>
+        <input className={cn('minput')} id={`streak-start-date-${h.id}`} type="date" min={snap.today} value={dateDraft}
+          aria-label={`${displayName(h)} streak start date`} onChange={(event) => {
+            const nextDate = event.target.value;
+            setDateDraft(nextDate);
+            if (nextDate) {
+              store.setStreakStartDate(h, nextDate);
+              setScheduleOpen(false);
+            }
+          }} />
+        <p className={cn('mhelp')}>Choose today or a future date. Earlier dates are unavailable. The streak ends after {h.streakDays} active days.</p>
+      </div>}
+    </div>
+  </>;
 }
 
 export function Days({ h, store }: EditorProps) {

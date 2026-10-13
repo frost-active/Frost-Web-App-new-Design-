@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { cn, timeText, to12 } from './format';
 import { TimeRow, SliderField } from './fields';
-import { CueCount, CueDuration, CueTimes, Days, HabitActions, HabitName, AudioField } from './HabitFields';
+import { CueCount, CueDuration, CueTimes, Days, HabitActions, HabitName, AudioField, StreakLength } from './HabitFields';
 import { MAX_DIAL, TEMPLATES, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 type Props = { snap: Snapshot; store: MyDayStore; addOpen: boolean; onAddClose: () => void };
@@ -30,7 +30,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
       <div className={cn('medform')}>
         {h.k === 'water' && <>
           <SliderField label="Daily goal" value={Math.round(h.target) || 2500} min={0} max={6000} step={100} unit="ml" boxWidth={64}
-            count={(v) => `${v} ml`} help="Your daily water target. Drag the slider or type a value."
+            showCount={false} help="Your daily water target. Drag the slider or type a value."
             onCommit={(v) => store.setGoal(v)} />
           <CueCount {...p} />
           <CueTimes {...p} title="Cue times" help="Drag each time slider in 15-minute steps, then choose AM or PM." />
@@ -40,11 +40,6 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
 
         {h.k === 'meds' && <>
           <HabitName {...p} title="Medicine name" placeholder="e.g. Metformin" help="Shown on the dial and device · up to 25 characters" />
-          <div className={cn('msec')} style={{ marginBottom: 11 }}>
-            <div className={cn('mlabel')}><span>Start date</span></div>
-            <input className={cn('minput')} type="date" aria-label="Start date" value={h.group?.start || ''} onChange={(e) => store.setMedDate(h, e.target.value)} />
-            <p className={cn('mhelp')}>End date is worked out automatically from the streak length and active days below.</p>
-          </div>
           <Days {...p} />
           <CueCount {...p} />
           <CueTimes {...p} title="Dose times" dose help="Set each dose in 15-minute steps and choose AM or PM at the right." />
@@ -96,9 +91,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
           <Days {...p} />
         </>}
 
-        <SliderField label="Streak length" value={h.streakDays} min={1} max={90} unit="days" showCount={false}
-          help="How long you want to go unbroken with this habit"
-          onCommit={(v) => store.setStreakDays(h, v)} />
+        <StreakLength {...p} />
       </div>
       <HabitActions {...p} armPark={armPark} armDelete={armDelete} setArmPark={setArmPark} setArmDelete={setArmDelete} />
     </div>

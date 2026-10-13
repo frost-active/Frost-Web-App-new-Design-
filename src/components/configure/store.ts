@@ -66,8 +66,8 @@ export type Habit = {
   group: CfgGroup | null;
 };
 
-export type Rec = { done: number; streak: number; best: number; log: number[]; streakDays: number; st: 'active' | 'formed'; a0: number };
-export type HabitVM = Habit & { done: number; streak: number; best: number; log: number[]; streakDays: number; formed: boolean; audioId: string | null; a0: number; day: number; dayTotal: number };
+export type Rec = { done: number; streak: number; best: number; log: number[]; streakDays: number; streakStartDate?: string; streakStartScheduled?: boolean; st: 'active' | 'formed'; a0: number };
+export type HabitVM = Habit & { done: number; streak: number; best: number; log: number[]; streakDays: number; streakStartDate: string; streakStartScheduled: boolean; formed: boolean; audioId: string | null; a0: number; day: number; dayTotal: number };
 export type Person = { n: string; p: number; v: number };
 export type Challenge = { id: number; hk: string; len: number; start: number; people: Person[] };
 export type Track = { id: string; name: string; size: number; type: string; added: number; dataUrl?: string };
@@ -102,14 +102,17 @@ export const dayOf = (h: { day: number }): number => h.day;
 /* ---------- day arithmetic (whole local calendar days) ---------- */
 const dayNumber = (d: Date): number => Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / DAYMS);
 
-/** Day N of M for one habit, counted from the last sync (latest configHistory entry): the number of calendar dates
- *  between that sync and today, plus one, kept within 1..M. M is the habit's streak length in that same entry.
- *  A habit that is not in that entry (added since) starts at Day 1 of its own streak length. */
-function syncDay(id: string, ownDays: number, last: ConfigureView['lastSync'], now: Date): { day: number; total: number } {
-  const total = last && last.habitIds?.includes(id) && last.streakDays[id] > 0 ? Math.round(last.streakDays[id]) : ownDays;
-  if (!last || (last.habitIds && !last.habitIds.includes(id))) return { day: 1, total };
-  const elapsed = dayNumber(now) - dayNumber(new Date(last.at));
-  return { day: Math.min(total, Math.max(1, elapsed + 1)), total };
+/** Counts scheduled active days from a habit's selected start date; a future start remains at day zero. */
+function syncDay(total: number, startISO: string, weekdays: number[], now: Date): { day: number; total: number } {
+  const start = new Date(`${startISO}T00:00:00`);
+  const today = new Date(`${isoDate(now)}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || start > today) return { day: 0, total };
+  const active = new Set(weekdays.length ? weekdays : [0, 1, 2, 3, 4, 5, 6]);
+  let day = 0;
+  for (let cursor = start; cursor <= today && day < total; cursor.setDate(cursor.getDate() + 1)) {
+    if (active.has(cursor.getDay())) day += 1;
+  }
+  return { day, total };
 }
 
 /* ---------- habits, derived from the live device schedule ---------- */
@@ -250,6 +253,13 @@ export class MyDayStore {
     Object.entries(view.syncedStreakDays).forEach(([id, days]) => {
       if (synced.has(id)) this.rec(id).streakDays = clamp(Math.round(days), FORM_MIN, FORM_MAX);
     });
+    Object.entries(view.streakWindows).forEach(([id, window]) => {
+      if (synced.has(id) && window.start) {
+        const record = this.rec(id);
+        record.streakStartDate = window.start;
+        record.streakStartScheduled = Boolean(record.streakStartScheduled) || window.start > view.today;
+      }
+    });
     this.save();
     return true;
   }
@@ -328,10 +338,11 @@ export class MyDayStore {
       const r = this.T.rec[h.id];
       const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today);
       const own = r?.streakDays ?? FORM_DEFAULT;
-      const { day, total } = syncDay(h.id, own, view.lastSync, new Date());
+      const streakStartDate = r?.streakStartDate ?? view.streakWindows[h.id]?.start ?? view.today;
+      const { day, total } = syncDay(own, streakStartDate, h.days, new Date());
       return {
         ...h, done: Math.min(r?.done ?? 0, h.target), streak: historicalStreak ?? r?.streak ?? 0, best: r?.best ?? 0, log: r?.log ?? [],
-        streakDays: own, formed: r?.st === 'formed', audioId: this.T.audio[h.id] ?? null, a0: r?.a0 ?? this.T.today, day, dayTotal: total,
+        streakDays: own, streakStartDate, streakStartScheduled: Boolean(r?.streakStartScheduled), formed: r?.st === 'formed', audioId: this.T.audio[h.id] ?? null, a0: r?.a0 ?? this.T.today, day, dayTotal: total,
       };
     });
     const onDial = habits.filter((h) => !h.parked);
@@ -362,10 +373,26 @@ export class MyDayStore {
     const v = clamp(Math.round(n), FORM_MIN, FORM_MAX);
     if (v === r.streakDays) return;
     r.streakDays = v;
+    const start = r.streakStartScheduled ? (r.streakStartDate ?? todayISO()) : todayISO();
+    r.streakStartDate = start;
     if (r.st === 'active' && r.streak >= v) this.form(h, r);   // a lowered bar promotes a streak that already clears it
     this.commit();
-    this.pushStreakWindow(h, h.days, v);
+    this.pushStreakWindow(h, h.days, v, start);
     this.toast(`${displayName(h)}’s streak length set to ${v} day${v === 1 ? '' : 's'}`);
+  }
+
+  setStreakStartDate(h: HabitVM, value: string): void {
+    const date = new Date(`${value}T00:00:00`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(date.getTime()) || isoDate(date) !== value) return;
+    if (value < todayISO()) { this.toast('Choose today or a future date for the streak schedule'); return; }
+    const record = this.rec(h.id);
+    record.streakStartDate = value;
+    record.streakStartScheduled = true;
+    if (h.k === 'meds' && h.gid) this.bridge.setMedDate(h.k, h.gid, 'start', value);
+    if (h.k === 'custom' && h.group?.type === 'absolute' && h.gid) this.bridge.setCustomDate(h.gid, value);
+    this.pushStreakWindow(h, h.days, h.streakDays, value);
+    this.commit();
+    this.toast(`${displayName(h)}’s streak starts ${new Date(`${value}T00:00:00`).toLocaleDateString()}`);
   }
 
   /** Pushes this habit's device-JSON validity window (start = today, end = the streak's Nth active day) —
@@ -375,11 +402,10 @@ export class MyDayStore {
    *  counting from today for every reminder except Medication, which anchors on its own
    *  (user-set) course start date instead. Skipped for a custom habit in "Specific date"
    *  mode (a single fixed day, not a repeating streak). */
-  private pushStreakWindow(h: Habit, days: number[], streakDays: number): void {
-    if (h.k === 'custom' && h.group?.type === 'absolute') return;
+  private pushStreakWindow(h: Habit, days: number[], streakDays: number, startISO: string): void {
     const id = h.gid ? `${h.k}:${h.gid}` : h.k;
-    const start = h.k === 'meds' ? (h.group?.start || todayISO()) : todayISO();
-    this.bridge.setStreakWindow(id, start, streakEndDate(start, streakDays, days));
+    const end = h.k === 'custom' && h.group?.type === 'absolute' ? startISO : streakEndDate(startISO, streakDays, days);
+    this.bridge.setStreakWindow(id, startISO, end);
   }
 
   /* ---------- add / park / delete ---------- */
@@ -461,25 +487,38 @@ export class MyDayStore {
     if (h.days.includes(day) && h.days.length < 2) { this.toast('At least one active day is needed'); return; }
     const nextDays = h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day].sort((a, b) => a - b);
     this.bridge.toggleDay(h.k, h.gid, day);
-    this.pushStreakWindow(h, nextDays, h.streakDays);
+    this.pushStreakWindow(h, nextDays, h.streakDays, h.streakStartDate);
   }
   setLabel(h: Habit, value: string): void { if (h.gid) this.bridge.setLabel(h.k, h.gid, value); }
   /** Medication's own course start date — the end date is worked out automatically (streak length × active days). */
   setMedDate(h: HabitVM, value: string): void {
     if (!h.gid) return;
     this.bridge.setMedDate(h.k, h.gid, 'start', value);
-    this.pushStreakWindow(h, h.days, h.streakDays);
+    const record = this.rec(h.id);
+    record.streakStartDate = value;
+    record.streakStartScheduled = true;
+    this.pushStreakWindow(h, h.days, h.streakDays, value);
   }
   setCustomMode(h: HabitVM, mode: 'recurring' | 'absolute'): void {
     if (!h.gid) return;
     this.bridge.setCustomMode(h.gid, mode);
-    if (mode === 'absolute') this.bridge.setStreakWindow(`${h.k}:${h.gid}`, h.group?.date || todayISO(), h.group?.date || todayISO());
-    else this.pushStreakWindow(h, h.days, h.streakDays);
+    if (mode === 'absolute') {
+      const start = h.group?.date || todayISO();
+      const record = this.rec(h.id);
+      record.streakStartDate = start;
+      record.streakStartScheduled = true;
+      this.bridge.setStreakWindow(`${h.k}:${h.gid}`, start, start);
+      this.commit();
+    } else this.pushStreakWindow(h, h.days, h.streakDays, h.streakStartDate);
   }
   setCustomDate(h: Habit, value: string): void {
     if (!h.gid) return;
+    const record = this.rec(h.id);
+    record.streakStartDate = value;
+    record.streakStartScheduled = true;
     this.bridge.setCustomDate(h.gid, value);
     this.bridge.setStreakWindow(`${h.k}:${h.gid}`, value, value);
+    this.commit();
   }
   scrollToEditor(): void { this.bridge.scrollToEditor(); }
 
