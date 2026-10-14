@@ -1,5 +1,5 @@
 import { clamp, unitFor } from './format';
-import type { CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureView, PomoField } from './types';
+import type { CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureView, MusicCategory, PomoField } from './types';
 
 /* ============================================================================
    The My day model.
@@ -478,6 +478,8 @@ export class MyDayStore {
   setGoal(ml: number): void { this.bridge.setWaterGoal(ml); }
   setIntervalDays(days: number): void { this.bridge.setIntervalDays(days); this.toast(`Bottle Clean every ${days} day${days === 1 ? '' : 's'}`); }
   pomodoro(field: PomoField, delta: number): void { this.bridge.pomodoro(field, delta); }
+  musicTracks(category: MusicCategory): number[] { return this.bridge.musicTracks(category); }
+  setMusicTracks(category: MusicCategory, trackIds: number[]): void { this.bridge.setMusicTracks(category, trackIds); }
   duplicateWindow(h: Habit, cue: number): void {
     if (h.times.length >= 6) { this.toast('That’s plenty of windows for one day — remove one before adding another'); return; }
     this.bridge.duplicateWindow(h.k, h.occ[cue]);

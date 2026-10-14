@@ -27,6 +27,7 @@ export type RawConfig = Record<string, any>;
 
 export type SyncedModel = {
   raw: RawConfig;
+  musicTrackSelections: Record<'pomodoro' | 'meditation' | 'healing', number[]>;
   /** every habit on the "Your habits" list when this was synced (parked ones included) */
   habitIds: string[];
   /** each habit's device-JSON validity window (id = category key, or `meds:<id>` / `custom:<id>`) */
@@ -222,24 +223,36 @@ function readBottleClean(raw: RawConfig, node: unknown, modern: boolean, out: Co
 }
 
 /* ---------- audio + healing sessions ---------- */
-function readAudio(raw: RawConfig, node: unknown): void {
-  if (!isObj(node)) return;
+function readAudio(raw: RawConfig, node: unknown, ui: Obj | null): Record<'pomodoro' | 'meditation' | 'healing', number[]> {
   const target = raw.audio;
-  target.volume = num(node.volume, target.volume);
+  const audioNode = isObj(node) ? node : {};
+  const uiSelections = isObj(ui?.music_tracks) ? ui.music_tracks : null;
+  const musicTrackSelections = { pomodoro: [], meditation: [], healing: [] } as Record<'pomodoro' | 'meditation' | 'healing', number[]>;
+  target.volume = num(audioNode.volume, target.volume);
   (['pomodoro', 'meditation', 'healing'] as const).forEach((key) => {
-    const section = node[key];
+    const section = audioNode[key];
     if (!isObj(section)) return;
     target[key].enabled = flag(section.enabled, target[key].enabled);
     if (key === 'healing') target.healing.require_dock = flag(section.require_dock, target.healing.require_dock);
-    const tracks = list(section.tracks).filter((track): track is number => typeof track === 'number' && Number.isFinite(track));
-    if (tracks.length) target[key].tracks = tracks;
+    const tracks = list(section.tracks).filter((track): track is number => typeof track === 'number' && Number.isSafeInteger(track) && track >= 0);
+    const savedSelection = uiSelections?.[key];
+    if (Array.isArray(savedSelection)) {
+      musicTrackSelections[key] = savedSelection.filter((track): track is number => typeof track === 'number' && Number.isSafeInteger(track) && track >= 0);
+    } else if (ui?.music_tracks_configured === true) {
+      musicTrackSelections[key] = tracks;
+    } else {
+      const isLegacyDefaultTrack = tracks.length === 1 && (tracks[0] === 45 || tracks[0] === 46);
+      musicTrackSelections[key] = isLegacyDefaultTrack ? [] : tracks;
+    }
+    target[key].tracks = [...musicTrackSelections[key]];
   });
-  const sessions = list(node.healing_schedules).flatMap((session) => {
+  const sessions = list(audioNode.healing_schedules).flatMap((session) => {
     if (!isObj(session) || clockMinutes(session.start_time) === null || clockMinutes(session.end_time) === null) return [];
     // a parked habit saves every session as disabled; whether it is on is `audio.healing.enabled`, the sessions themselves must survive
     return [{ enabled: true, start_time: text(session.start_time), end_time: text(session.end_time), days: dayList(session.days) }];
   });
   if (sessions.length) target.healing_schedules = sessions;
+  return musicTrackSelections;
 }
 
 /* ---------- pomodoro ---------- */
@@ -304,11 +317,11 @@ export function syncedConfigToModel(doc: unknown): SyncedModel {
   readMedication(raw, reminders.medication, modern, out);
   readCustom(raw, reminders.custom, ui, modern, out);
   readBottleClean(raw, modern ? reminders.bottle_clean : doc.bottle_clean, modern, out);
-  readAudio(raw, doc.audio);
+  const musicTrackSelections = readAudio(raw, doc.audio, ui);
   readPomodoro(raw, doc.pomodoro, ui, modern, out);
 
   const listed = ui && Array.isArray(ui.habits) ? ui.habits.filter((id): id is string => typeof id === 'string') : null;
-  return { raw, habitIds: listed ?? inferHabitIds(raw, doc, reminders, modern), streakWindows: out.windows, streakDays: out.streakDays };
+  return { raw, musicTrackSelections, habitIds: listed ?? inferHabitIds(raw, doc, reminders, modern), streakWindows: out.windows, streakDays: out.streakDays };
 }
 
 /** JSON with sorted keys, so two copies of the same configuration always compare equal */

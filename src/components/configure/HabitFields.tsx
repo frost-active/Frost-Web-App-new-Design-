@@ -102,12 +102,12 @@ export function AudioField({ h, store, snap, libOpen, setLibOpen }: EditorProps 
   if (libOpen) {
     libraryBox = !lib.length ? (
       <div className={cn('libbox')}>
-        <div className={cn('libhd')}><span>Music library</span><button type="button" className={cn('btn sm')} onClick={() => setLibOpen(false)}>Close</button></div>
+        <div className={cn('libhd')}><span>Uploaded audio</span><button type="button" className={cn('btn sm')} onClick={() => setLibOpen(false)}>Close</button></div>
         <p className={cn('libempty')}>No tracks yet. Tap Upload to add an audio file for Aura to play with this habit.</p>
       </div>
     ) : (
       <div className={cn('libbox')}>
-        <div className={cn('libhd')}><span>Music library · {lib.length}</span><button type="button" className={cn('btn sm')} onClick={() => setLibOpen(false)}>Close</button></div>
+        <div className={cn('libhd')}><span>Uploaded audio · {lib.length}</span><button type="button" className={cn('btn sm')} onClick={() => setLibOpen(false)}>Close</button></div>
         <div className={cn('liblist')}>
           {lib.map((t) => (
             <div key={t.id} className={cn('libitem')} role="button" tabIndex={0} aria-pressed={h.audioId === t.id}
@@ -127,7 +127,7 @@ export function AudioField({ h, store, snap, libOpen, setLibOpen }: EditorProps 
       <div className={cn('mlabel')}><span>Audio on device</span></div>
       <div className={cn('audrow')}>
         <button type="button" className={cn('btn')} onClick={() => fileRef.current?.click()}>Upload</button>
-        <button type="button" className={cn('btn')} onClick={() => setLibOpen(!libOpen)}>{libOpen ? 'Hide library' : 'Music library'}{lib.length ? ` · ${lib.length}` : ''}</button>
+        <button type="button" className={cn('btn')} onClick={() => setLibOpen(!libOpen)}>{libOpen ? 'Hide uploads' : 'Uploaded audio'}{lib.length ? ` · ${lib.length}` : ''}</button>
       </div>
       <input ref={fileRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac" className="cfg-hide" aria-hidden="true" tabIndex={-1}
         onChange={(e) => {

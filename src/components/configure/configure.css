@@ -87,6 +87,21 @@
 #page-configure .cfg-libitem .cfg-li-del{flex:none;width:28px;height:28px;border-radius:8px;border:0;background:none;color:var(--muted);font-size:16px;cursor:pointer;display:grid;place-items:center}
 #page-configure .cfg-libitem .cfg-li-del:hover{color:#E4674F;background:rgba(228,103,79,.14)}
 #page-configure .cfg-libempty{padding:16px 12px;font-size:12.5px;color:var(--muted);line-height:1.5;text-align:center}
+#page-configure .cfg-music-toggle{width:100%;text-align:left}
+#page-configure .cfg-music-catalog{margin-top:10px;border:1px solid var(--faint);border-radius:10px;overflow:hidden;background:var(--panel2)}
+#page-configure .cfg-music-catalog-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;border-bottom:1px solid var(--faint);font:600 11px "DM Sans";color:var(--muted)}
+#page-configure .cfg-music-catalog-heading>div{display:flex;gap:5px}
+#page-configure .cfg-music-catalog-list{max-height:230px;overflow:auto}
+#page-configure .cfg-music-track{min-height:44px;display:flex;align-items:center;gap:9px;padding:7px 10px;border-bottom:1px solid var(--faint);cursor:pointer}
+#page-configure .cfg-music-track:last-child{border-bottom:0}
+#page-configure .cfg-music-track:hover{background:rgba(41,171,226,.08)}
+#page-configure .cfg-music-track input{width:17px;height:17px;flex:none;margin:0;accent-color:var(--mint)}
+#page-configure .cfg-music-track-name{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink);font-size:12px}
+#page-configure .cfg-music-catalog-state{min-height:56px;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;color:var(--muted);font-size:12px;text-align:center}
+#page-configure .cfg-music-catalog-error{margin:9px 10px 0;color:#ff8177;font-size:11px;line-height:1.4}
+#page-configure .cfg-music-catalog-count{margin:0;padding:8px 10px;border-top:1px solid var(--faint);color:var(--muted);font-size:10.5px}
+#page-configure .cfg-music-selected-name{display:block;margin:0;padding-top:8px;color:var(--muted);font-size:11.5px;line-height:1.45;overflow-wrap:anywhere}
+#page-configure .cfg-music-selected-name b{color:var(--ink);font-weight:600}
 #page-configure .cfg-minput{width:100%;background:var(--panel2);border:1px solid var(--faint);border-radius:14px;padding:14px 16px;font:600 16px "DM Sans";color:var(--ink)}
 #page-configure .cfg-minput::placeholder{color:rgba(230,241,248,.32);font-weight:400}
 #page-configure .cfg-minput:focus{outline:none;border-color:var(--sky)}

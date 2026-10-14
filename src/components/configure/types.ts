@@ -76,6 +76,7 @@ export type ConfigureView = {
 };
 
 export type PomoField = 'focus_min' | 'break_min' | 'cycles';
+export type MusicCategory = 'pomodoro' | 'meditation' | 'healing';
 
 export type ConfigureBridge = {
   subscribe: (listener: () => void) => () => void;
@@ -95,6 +96,8 @@ export type ConfigureBridge = {
   setIntervalDays: (days: number) => void;
   setWaterGoal: (ml: number) => void;
   pomodoro: (field: PomoField, delta: number) => void;
+  musicTracks: (category: MusicCategory) => number[];
+  setMusicTracks: (category: MusicCategory, trackIds: number[]) => void;
 
   setLabel: (k: string, gid: string, value: string) => void;
   setMedDate: (k: string, gid: string, field: 'start' | 'end', value: string) => void;

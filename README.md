@@ -32,3 +32,16 @@ Firebase Authentication is configured in `src/firebase.ts`. Enable **Email/Passw
 Web Bluetooth is available in Chrome or Edge on `localhost` or HTTPS. The browser may ask for the firmware's custom service UUID during discovery; the Python protocol only specifies the characteristic UUID, so the service must be exposed by the device firmware for browser access.
 
 Before connecting, copy `.env.example` to `.env` and set `VITE_FROST_SERVICE_UUID` to the parent GATT service UUID from the ESP32 firmware. Do not set it to `4af12345-6789-abcd-ef12-3456789abcde`; that is the characteristic UUID.
+
+## Device Music Library
+
+Pomodoro, Meditation, and Healing read selectable music tracks from a published Google Sheets CSV. The sheet must have a header row with `music` and `music_id` columns; `music_id` values are written as numbers into the corresponding `audio.*.tracks` array in the device JSON.
+
+To connect a sheet:
+
+1. In Google Sheets, use the first row for the exact headers `music` and `music_id`, then add one track per row.
+2. Choose **File > Share > Publish to web**. Select the sheet tab and **Comma-separated values (.csv)**, then publish it.
+3. Copy the published CSV URL into `.env.local` as `VITE_MUSIC_SHEET_CSV_URL=<published CSV URL>`. The sheet must be publicly published for the browser to fetch it.
+4. Restart the Vite development server. In the Configure tab, open Pomodoro, Meditation, or Healing and click **Music Library**. Select tracks; their numeric IDs update the JSON immediately.
+
+The web app fetches the published CSV directly from the browser, so the published sheet is public. Do not put private information in it.

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { cn, timeText, to12 } from './format';
 import { TimeRow, SliderField } from './fields';
 import { CueCount, CueDuration, CueTimes, Days, HabitActions, HabitName, AudioField, StreakLength } from './HabitFields';
+import MusicCatalogField from './MusicCatalogField';
 import { MAX_DIAL, TEMPLATES, type HabitVM, type MyDayStore, type Snapshot } from './store';
 
 type Props = { snap: Snapshot; store: MyDayStore; addOpen: boolean; onAddClose: () => void };
@@ -55,6 +56,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
 
         {h.k === 'meditation' && <>
           <RangeField h={h} store={store} cueIdx={0} label="Meditation schedule" />
+          <MusicCatalogField category="meditation" selectedTrackIds={store.musicTracks('meditation')} onChange={(ids) => store.setMusicTracks('meditation', ids)} />
           <AudioField {...p} libOpen={libOpen} setLibOpen={setLibOpen} />
           <Days {...p} />
         </>}
@@ -62,6 +64,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
         {h.k === 'healing' && <>
           <RangeField h={h} store={store} cueIdx={snap.cueIdx} label="Healing schedule" />
           <WindowPager h={h} store={store} cueIdx={snap.cueIdx} />
+          <MusicCatalogField category="healing" selectedTrackIds={store.musicTracks('healing')} onChange={(ids) => store.setMusicTracks('healing', ids)} />
           <AudioField {...p} libOpen={libOpen} setLibOpen={setLibOpen} />
           <Days {...p} />
         </>}
@@ -69,6 +72,7 @@ export default function HabitEditor({ snap, store, addOpen, onAddClose }: Props)
         {h.k === 'pomodoro' && <>
           <PomodoroFields h={h} store={store} snap={snap} />
           <WindowPager h={h} store={store} cueIdx={snap.cueIdx} />
+          <MusicCatalogField category="pomodoro" selectedTrackIds={store.musicTracks('pomodoro')} onChange={(ids) => store.setMusicTracks('pomodoro', ids)} />
           <AudioField {...p} libOpen={libOpen} setLibOpen={setLibOpen} />
           <Days {...p} />
         </>}

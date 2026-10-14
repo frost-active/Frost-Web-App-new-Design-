@@ -272,6 +272,7 @@ function setDnd(from,to){DND=[from,to];WAKE=[to,from];}   // wake is the complem
 
 /* ---- real device config (schema_ver 6) sent webapp -> device ---- */
 const RAW=structuredClone(defaultConfig);
+let musicTrackSelections={pomodoro:[],meditation:[],healing:[]};
 /* The default device schema now lives in config/defaultConfig.ts. */
 
 const DOW=['sun','mon','tue','wed','thu','fri','sat'];
@@ -606,6 +607,7 @@ function restoreSyncedConfiguration(saved:typeof defaultConfig,docSig=stableStri
   const prevSel=sel?{k:sel.k,i:sel.i,id:selectedGroupId()}:null;
   Object.keys(RAW).forEach(key=>delete RAW[key]);
   Object.assign(RAW,model.raw);
+  musicTrackSelections=model.musicTrackSelections;
   CATS=nextCats;
   syncPomo();
   { const _pb=pomoSessionBounds(RAW.pomodoro); pomoFrom=_pb.start; pomoTo=_pb.end; }
@@ -936,6 +938,16 @@ function sanitizeDuplicateCueTimes(){
 /* --- selection --- */
 function cfgSelect(k,i){sel={k,i};renderConfigure();}
 
+function cfgGetMusicTracks(category){
+  return Array.isArray(musicTrackSelections[category])?musicTrackSelections[category].slice():[];
+}
+function cfgSetMusicTracks(category,trackIds){
+  if(!['pomodoro','meditation','healing'].includes(category)||!Array.isArray(trackIds))return;
+  musicTrackSelections[category]=[...new Set(trackIds.filter(id=>Number.isSafeInteger(id)&&id>=0))];
+  RAW.audio[category].tracks=musicTrackSelections[category].slice();
+  renderConfigure();
+}
+
 /* --- timing --- */
 function cfgUpdateAbsoluteTime(c,nv,index=sel.i){
   forceAbsoluteMode(c); // keep internal mode in sync so abs.times is used on sync
@@ -1154,6 +1166,7 @@ const configureBridge={
   select:cfgSelect, scrollToEditor:maybeScroll, toast:m=>toast(m),
   setCueTime:cfgSetCueTime, setCueCount:cfgSetCueCount, removeCue:cfgRemoveCue, duplicateWindow:cfgDuplicateWindow,
   setDuration:cfgSetDuration, setRange:cfgSetRange, setIntervalDays:cfgSetIntervalDays, setWaterGoal:cfgSetWaterGoal, pomodoro:cfgPomodoro,
+  musicTracks:cfgGetMusicTracks, setMusicTracks:cfgSetMusicTracks,
   setLabel:cfgSetLabel, setMedDate:cfgSetMedDate, toggleDay:cfgToggleDay, setCustomMode:cfgSetCustomMode, setCustomDate:cfgSetCustomDate,
   setEnabled:cfgSetEnabled, addTemplate:cfgAddTemplate, addMedicine:cfgAddMedicine, addCustom:cfgAddCustom, deleteGroup:cfgDeleteGroup,
   setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded,
@@ -1715,16 +1728,16 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     volume: rawAudio.volume != null ? rawAudio.volume : 15,
     pomodoro: {
       enabled: !!(rawAudio.pomodoro && rawAudio.pomodoro.enabled !== false),
-      tracks: (rawAudio.pomodoro && Array.isArray(rawAudio.pomodoro.tracks)) ? rawAudio.pomodoro.tracks.slice() : [45]
+      tracks: rawAudio.pomodoro && Array.isArray(rawAudio.pomodoro.tracks) && rawAudio.pomodoro.tracks.length ? rawAudio.pomodoro.tracks.slice() : [46]
     },
     meditation: {
       enabled: !!(rawAudio.meditation && rawAudio.meditation.enabled !== false),
-      tracks: (rawAudio.meditation && Array.isArray(rawAudio.meditation.tracks)) ? rawAudio.meditation.tracks.slice() : [45]
+      tracks: rawAudio.meditation && Array.isArray(rawAudio.meditation.tracks) && rawAudio.meditation.tracks.length ? rawAudio.meditation.tracks.slice() : [46]
     },
     healing: {
       enabled: cfgVisible('healing') && !!(he && he.on),
       require_dock: !!(rawAudio.healing && rawAudio.healing.require_dock !== false),
-      tracks: (rawAudio.healing && Array.isArray(rawAudio.healing.tracks)) ? rawAudio.healing.tracks.slice() : [45]
+      tracks: rawAudio.healing && Array.isArray(rawAudio.healing.tracks) && rawAudio.healing.tracks.length ? rawAudio.healing.tracks.slice() : [46]
     },
     healing_schedules
   };
@@ -1764,6 +1777,11 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
       ...(habitIds ? { habits: habitIds } : {}),
       goal_ml: waterCat && Number.isFinite(waterCat.goal) ? waterCat.goal : 2000,
       pomodoro: { cycles: rawPomo.cycles != null ? rawPomo.cycles : 4 },
+      music_tracks: {
+        pomodoro: musicTrackSelections.pomodoro.slice(),
+        meditation: musicTrackSelections.meditation.slice(),
+        healing: musicTrackSelections.healing.slice()
+      },
       custom: uiCustom
     };
   }
