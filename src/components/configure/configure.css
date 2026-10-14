@@ -202,6 +202,28 @@
 #page-configure .cfg-racer.cfg-me p{color:var(--ink);font-weight:600}
 #page-configure .cfg-racer p b{display:block;font:700 11.5px Syne;color:var(--ink)}
 #page-configure .cfg-newchal{border:1px solid rgba(41,171,226,.35);border-radius:13px;padding:13px;margin-bottom:10px}
+#page-configure .cfg-challenge-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:16px;background:rgba(4,24,40,.76);backdrop-filter:blur(3px)}
+#page-configure .cfg-challenge-modal{width:min(100%,480px);max-height:min(680px,calc(100dvh - 32px));display:flex;flex-direction:column;padding:20px;border:1px solid var(--faint);border-radius:12px;background:var(--panel);box-shadow:0 20px 56px rgba(0,0,0,.38);color:var(--ink)}
+#page-configure .cfg-challenge-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+#page-configure .cfg-challenge-heading h2{margin:0;font:700 16px Syne;letter-spacing:0;text-transform:none}
+#page-configure .cfg-challenge-close{width:32px;height:32px;flex:none;border:1px solid var(--faint);border-radius:7px;background:transparent;color:var(--muted);font-size:20px;line-height:1;cursor:pointer}
+#page-configure .cfg-challenge-close:hover{border-color:var(--sky);color:var(--ink)}
+#page-configure .cfg-challenge-load{width:100%;min-height:42px;display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:12px}
+#page-configure .cfg-challenge-search{width:100%;min-height:42px;box-sizing:border-box;margin-bottom:8px;padding:10px 12px;border:1px solid var(--faint);border-radius:8px;outline:none;background:var(--panel2);color:var(--ink);font:500 14px "DM Sans"}
+#page-configure .cfg-challenge-search:focus{border-color:var(--sky)}
+#page-configure .cfg-challenge-list{min-height:80px;overflow:auto;border:1px solid var(--faint);border-radius:8px;background:var(--panel2)}
+#page-configure .cfg-challenge-user{min-height:50px;display:flex;align-items:center;gap:11px;padding:8px 12px;border-bottom:1px solid var(--faint);cursor:pointer}
+#page-configure .cfg-challenge-user:last-child{border-bottom:0}
+#page-configure .cfg-challenge-user:hover{background:rgba(41,171,226,.08)}
+#page-configure .cfg-challenge-user input{width:17px;height:17px;flex:none;margin:0;accent-color:var(--mint)}
+#page-configure .cfg-challenge-user span{min-width:0;overflow-wrap:anywhere;font-size:12.5px;line-height:1.45}
+#page-configure .cfg-challenge-state{padding:18px 12px;color:var(--muted);font-size:12.5px;line-height:1.5;text-align:center}
+#page-configure .cfg-challenge-error{margin:0 0 10px;color:#ff8177;font-size:12px;line-height:1.5}
+#page-configure .cfg-challenge-selected{margin:12px 0 0;color:var(--muted);font-size:12px}
+#page-configure .cfg-challenge-selected b{color:var(--ink)}
+#page-configure .cfg-spinner{width:15px;height:15px;flex:none;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cfg-spin .7s linear infinite}
+@keyframes cfg-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){#page-configure .cfg-spinner{animation:none}}
 @media(max-width:680px){
   #page-configure .cfg-btn{padding:11px 14px}
   #page-configure .cfg-btn.cfg-sm{padding:8px 11px;font-size:12px}

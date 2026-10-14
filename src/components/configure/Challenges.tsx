@@ -1,46 +1,19 @@
 import { useState } from 'react';
 import { arcMini, cn } from './format';
-import { board, displayName, PEERS, type MyDayStore, type Snapshot } from './store';
+import { board, displayName, type MyDayStore, type Snapshot } from './store';
+import NewChallengeModal from '../NewChallengeModal';
 
-type Props = { snap: Snapshot; store: MyDayStore };
+type Props = { snap: Snapshot; store: MyDayStore; currentUid: string };
 
 /** Put one of your habits in front of a few colleagues for a fortnight — the board is the only prize. */
-export default function Challenges({ snap, store }: Props) {
+export default function Challenges({ snap, store, currentUid }: Props) {
   const [open, setOpen] = useState(false);
-  const pickable = snap.onDial;
-  const [draftKey, setDraftKey] = useState<string | null>(null);
-  const [draftLen, setDraftLen] = useState(14);
-  const [draftWho, setDraftWho] = useState<string[]>([]);
-  const draftHabit = pickable.find((h) => h.id === draftKey) || pickable[0] || null;
-
-  const openNew = () => { setDraftKey(pickable[0]?.id ?? null); setDraftLen(14); setDraftWho([]); setOpen(true); };
-  const create = () => {
-    if (!draftHabit || !draftWho.length) { store.toast('Pick at least one person'); return; }
-    store.createChallenge(draftHabit.k, draftLen, draftWho);
-    setOpen(false);
-  };
+  const openNew = () => setOpen(true);
 
   return (
     <div className={cn('card')}>
       <h2>Challenges <span className={cn('r')}>friends &amp; colleagues</span></h2>
-      {open && pickable.length > 0 && (
-        <div className={cn('newchal')}>
-          <p className={cn('empty')} style={{ marginBottom: 10 }}>Same habit, same window, one board. Everyone counts the days they hit <b>their own</b> target.</p>
-          <div className={cn('chips')}>
-            {pickable.map((h) => <button key={h.id} type="button" className={cn('chipb')} aria-pressed={draftHabit?.id === h.id} onClick={() => setDraftKey(h.id)}>{displayName(h)}</button>)}
-          </div>
-          <div className={cn('chips')} style={{ marginTop: 9 }}>
-            {[7, 14, 21].map((n) => <button key={n} type="button" className={cn('chipb')} aria-pressed={draftLen === n} onClick={() => setDraftLen(n)}>{n} days</button>)}
-          </div>
-          <div className={cn('chips')} style={{ marginTop: 9 }}>
-            {PEERS.map((name) => <button key={name} type="button" className={cn('chipb')} aria-pressed={draftWho.includes(name)} onClick={() => setDraftWho((w) => w.includes(name) ? w.filter((n) => n !== name) : [...w, name])}>{name}</button>)}
-          </div>
-          <div className={cn('rowbtns')}>
-            <button type="button" className={cn('btn pri grow')} onClick={create}>Send challenge</button>
-            <button type="button" className={cn('btn')} onClick={() => setOpen(false)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {open && <NewChallengeModal currentUid={currentUid} onClose={() => setOpen(false)} />}
       {!snap.challenges.length ? (
         <p className={cn('empty')}>No challenges running. Put one of your habits in front of a few colleagues for a fortnight — the board is the only prize.</p>
       ) : snap.challenges.map((c) => {
@@ -78,7 +51,7 @@ export default function Challenges({ snap, store }: Props) {
         );
       })}
       <div className={cn('rowbtns')}>
-        <button type="button" className={cn('btn grow')} disabled={!pickable.length} onClick={openNew}>New challenge</button>
+        <button type="button" className={cn('btn grow')} onClick={openNew}>New Challenge</button>
         <button type="button" className={cn('btn')} onClick={() => store.inviteLink()}>Copy invite link</button>
       </div>
     </div>

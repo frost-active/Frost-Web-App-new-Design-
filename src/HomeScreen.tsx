@@ -126,7 +126,7 @@ export default function HomeScreen({ user }: { user: User }) {
     const configureChallengesHost = dashboard.querySelector<HTMLElement>('#configure-challenges-root');
     if (configureChallengesHost) {
       configureChallengesRoot.current = createRoot(configureChallengesHost);
-      configureChallengesRoot.current.render(<ConfigureChallengesPanel store={myDayStore.current} />);
+      configureChallengesRoot.current.render(<ConfigureChallengesPanel store={myDayStore.current} currentUid={user.uid} />);
     }
 
     const deviceBindingHost = dashboard.querySelector<HTMLElement>('#device-binding-root');

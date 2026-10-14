@@ -9,6 +9,7 @@ import { useMyDay } from '../components/configure/useMyDay';
 import type { MyDayStore } from '../components/configure/store';
 
 type Props = { store: MyDayStore };
+type ChallengesProps = Props & { currentUid: string };
 
 /* Left column, top: the day clock (with its hint). It sits inside the dial card that
    the dashboard shell owns, next to the "Sync Now" button. */
@@ -25,9 +26,9 @@ export function ConfigureClockPanel({ store }: Props) {
 
 /* Left column, below the dial card: challenges — same column as the clock, per the
    "My day" prototype's own layout. */
-export function ConfigureChallengesPanel({ store }: Props) {
+export function ConfigureChallengesPanel({ store, currentUid }: ChallengesProps) {
   const snap = useMyDay(store);
-  return <Challenges snap={snap} store={store} />;
+  return <Challenges snap={snap} store={store} currentUid={currentUid} />;
 }
 
 /* Right column: your habits, and the editor for whichever is selected (or the "Add a
@@ -44,7 +45,7 @@ export function ConfigureSidePanel({ store }: Props) {
 }
 
 /* All three panels as one page — handy for tests or if the shell is ever moved to React. */
-export default function ConfigurePage({ store }: Props) {
+export default function ConfigurePage({ store, currentUid }: ChallengesProps) {
   return (
     <section id="page-configure">
       <div className="ptitle">My day</div>
@@ -52,7 +53,7 @@ export default function ConfigurePage({ store }: Props) {
       <div className="cfg-daygrid">
         <div className="cfg-daycol">
           <div className="clockcard cfg-dialcard"><ConfigureClockPanel store={store} /></div>
-          <ConfigureChallengesPanel store={store} />
+          <ConfigureChallengesPanel store={store} currentUid={currentUid} />
         </div>
         <div className="cfg-daycol cfg-side">
           <div className="cfg-daycol"><ConfigureSidePanel store={store} /></div>
