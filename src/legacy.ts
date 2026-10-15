@@ -6,6 +6,7 @@ import { reminderDefinitions } from './reminders';
 import { ensureDeviceBindingMatchesUser, getSavedDeviceConfig, saveDailyGoal, saveDeviceConfig, saveDeviceName, saveDndStatus } from './DeviceConfigSync';
 import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
+import { localDateISO, withCurrentSyncStartDates } from './utils/deviceSyncDates';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
 /* Clock toolbar — Sync Now on the top-right of the dial (desktop + mobile) */
 #page-configure .clockcard {
@@ -389,7 +390,7 @@ let CATS=buildActiveCategories(RAW);
 /* per-occurrence duration: pomodoro laps can each be a different length */
 const occDur=(c,i)=>(c.durs&&c.durs[i]!=null)?c.durs[i]:c.dur;
 /* ---- custom reminder helpers (Events ↔ Specific pairing, safe removal, selection) ---- */
-const localISODate=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const localISODate=localDateISO;
 const customType=group=>group?.type==='absolute'?'absolute':'recurring';
 function nextCustomId(groups){
   let max=0;
@@ -1855,8 +1856,6 @@ async function syncScheduleToDevice(){
     if(duplicateRemovals>0)toast('Duplicate cue times were removed before syncing.');
 
     const sentSnapshot=snapshot();
-    const syncedConfig=toDeviceJSON();
-    const cloudConfig=JSON.parse(JSON.stringify(toDeviceJSON({includeUiMeta:true})));   // the database rejects `undefined`
     let savedConfig;
     try{
       savedConfig=await getSavedDeviceConfig(authenticatedUser.uid,deviceMac);
@@ -1866,6 +1865,9 @@ async function syncScheduleToDevice(){
       toast('Could not check your saved schedule. Nothing was sent or saved; check your connection and try again.');
       return;
     }
+    const syncDate=localDateISO();
+    const syncedConfig=withCurrentSyncStartDates(toDeviceJSON(),syncDate);
+    const cloudConfig=withCurrentSyncStartDates(toDeviceJSON({includeUiMeta:true}),syncDate);   // the database rejects `undefined`
     if(savedConfig&&stableStringify(cloudConfig)===stableStringify(savedConfig)){
       liveConfigSynced=true;
       device=sentSnapshot;
@@ -1889,12 +1891,9 @@ async function syncScheduleToDevice(){
       toast(saved.message);
     }else{
       liveConfigSynced=true;
-      device=sentSnapshot;
       cfgSyncFailed=false;
       cfgLastSyncedAt=Date.now();
-      if(Array.isArray(cloudConfig.ui_meta?.habits))cfgSyncedHabitIds=cloudConfig.ui_meta.habits;
-      syncedSig=lastDocSig=stableStringify(cloudConfig);
-      lastSyncedConfig=JSON.parse(JSON.stringify(cloudConfig));
+      restoreSyncedConfiguration(cloudConfig,stableStringify(cloudConfig));
       cfgDayLocal={...cfgDayFrom(cloudConfig,cfgLastSyncedAt),source:null};   // a new sync restarts every habit's counter at Day 1
       refreshDirty();
       toast('Schedule synced to Aura');

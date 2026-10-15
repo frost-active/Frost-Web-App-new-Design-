@@ -164,9 +164,10 @@ export function deriveHabits(view: ConfigureView, removed: ReadonlySet<string>, 
 }
 
 /** is this habit actually scheduled on that day (weekday, a medicine's date range, a bottle-clean interval …) */
-function isDue(h: Habit, idx: number, t0: number, a0: number): boolean {
+function isDue(h: Habit, idx: number, t0: number, a0: number, streakStartDate?: string): boolean {
   const dt = new Date((t0 + idx) * DAYMS);
   const iso = dt.toISOString().slice(0, 10), dow = dt.getUTCDay();
+  if (streakStartDate && iso < streakStartDate) return false;
   if (h.k === 'custom' && h.group?.type === 'absolute') return (h.group.date || '') === iso;
   if (h.days.length && !h.days.includes(dow)) return false;
   if (h.k === 'meds' && h.group) {
@@ -287,14 +288,14 @@ export class MyDayStore {
     if (changed) this.save();
   }
 
-  private historyStreak(h: Habit, history: ConfigureView['ackHistory'], today: string, a0: number): number | null {
+  private historyStreak(h: Habit, history: ConfigureView['ackHistory'], today: string, a0: number, streakStartDate?: string): number | null {
     const date = new Date(`${today}T00:00:00`);
     date.setDate(date.getDate() - 1);
     let count = 0, found = false;
     for (let guard = 0; guard < 500; guard += 1, date.setDate(date.getDate() - 1)) {
       const idx = dayNumber(date) - this.T.t0;
       if (idx < a0) break;
-      if (!isDue(h, idx, this.T.t0, a0)) continue;
+      if (!isDue(h, idx, this.T.t0, a0, streakStartDate)) continue;
       const counts = history[isoDate(date)];
       if (!counts) break;
       found = true;
@@ -315,7 +316,7 @@ export class MyDayStore {
       list.forEach((h) => {
         const r = this.rec(h.id);
         if (ack[h.k] != null) r.done = clamp(ack[h.k], 0, h.target);   // score off the freshest real Acknowledged count
-        if (!isDue(h, this.T.today, this.T.t0, r.a0)) { r.done = 0; return; }   // not due: streak untouched, tally clears
+        if (!isDue(h, this.T.today, this.T.t0, r.a0, r.streakStartDate)) { r.done = 0; return; }   // not due: streak untouched, tally clears
         if (Math.min(r.done, h.target) >= h.target) { r.log.push(1); r.streak++; } else { r.log.push(0); r.streak = 0; }
         r.done = 0; r.best = Math.max(r.best, r.streak);
         if (r.st === 'active' && r.streak >= r.streakDays) r.st = 'formed';
@@ -336,7 +337,7 @@ export class MyDayStore {
     const ack = view.ackToday || {};
     const habits: HabitVM[] = deriveHabits(view, removed, added).map((h) => {
       const r = this.T.rec[h.id];
-      const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today);
+      const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today, r?.streakStartDate);
       const own = r?.streakDays ?? FORM_DEFAULT;
       const streakStartDate = r?.streakStartDate ?? view.streakWindows[h.id]?.start ?? view.today;
       const { day, total } = syncDay(own, streakStartDate, h.days, new Date());
