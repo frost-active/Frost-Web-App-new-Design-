@@ -22,7 +22,6 @@ import { defaultConfig } from './defaultConfig';
 
 type Obj = Record<string, unknown>;
 /** the schedule model: the same shape as `defaultConfig`, but editable */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type RawConfig = Record<string, any>;
 
 export type SyncedModel = {
@@ -204,6 +203,11 @@ function readCustom(raw: RawConfig, node: unknown, ui: Obj | null, modern: boole
       h: times[0].h, m: times[0].m, times, show_ms: positive(item.display_ms ?? item.show_ms, 60000), type, date, days,
       text_x: num(item.text_x, 120), text_y: num(item.text_y, 100), text_size: num(item.text_size, 1),
       text_color: num(item.text_color, 65535), text_align: num(item.text_align, 1), text_width: num(item.text_width, 180),
+      ...(text(kind?.challengeId) ? { challengeId: text(kind?.challengeId) } : {}),
+      ...(kind?.challengeRole === 'source' || kind?.challengeRole === 'device' ? { challengeRole: kind.challengeRole } : {}),
+      ...(kind?.challengeStatus === 'pending' || kind?.challengeStatus === 'active' || kind?.challengeStatus === 'completed' || kind?.challengeStatus === 'cancelled' ? { challengeStatus: kind.challengeStatus } : {}),
+      ...(isoDate(kind?.startDate) ? { challengeStartDate: isoDate(kind?.startDate)! } : {}),
+      ...(isoDate(kind?.endDate) ? { challengeEndDate: isoDate(kind?.endDate)! } : {}),
       ...(text(item.mode_pair_id) ? { mode_pair_id: text(item.mode_pair_id) } : {}),
     }];
   });

@@ -12,16 +12,16 @@ export default function DeviceBottleControls({ isDeviceConnected }: Props) {
           disabled={!isDeviceConnected}
           onClick={() => window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type: 'bottle-control', enabled: true } }))}
         >
-          Enable Water Consumption
+          Add Bottle
         </button>
-        <button
+        {/*<button
           className="btn"
           type="button"
           disabled={!isDeviceConnected}
           onClick={() => window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type: 'bottle-control', enabled: false } }))}
         >
           Disable Water Consumption
-        </button>
+        </button> */}
       </div>
       <p className="device-bottle-controls-help">
         {isDeviceConnected

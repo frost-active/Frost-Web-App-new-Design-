@@ -108,6 +108,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       <button data-p="configure" aria-current="true">Configure</button>
       <button data-p="stats">Statistics</button>
       <button data-p="device">Device</button>
+      <button data-p="challenges">Challenges</button>
     </nav>
     <div class="hspace"></div>
     <div id="header-controls-root"></div>
@@ -128,6 +129,7 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
         <div class="firmware-notice-heading"><h2 id="firmwareNoticeTitle">Firmware status</h2><button class="firmware-notice-close" id="firmwareNoticeClose" type="button" aria-label="Close firmware notification">&times;</button></div>
         <p id="firmwareNoticeMessage">Connect your FROST Aura to check its firmware.</p>
         <button class="firmware-notice-help" id="firmwareNoticeHelp" type="button" hidden></button>
+        <div id="challenge-notifications-root"></div>
       </div>
     </div>
     <div class="user" id="user">
@@ -159,7 +161,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
           </div>
           <div id="configure-dial-root"></div>
         </div>
-        <div id="configure-challenges-root"></div>
       </div>
       <div class="cfg-daycol cfg-side">
         <div id="configure-side-root" class="cfg-daycol"></div>
@@ -247,6 +248,10 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
           <button class="btn" id="dReset">Reset schedule</button></div>
         <pre id="jsonOut"></pre></div>
     </div>
+  </section>
+
+  <section id="page-challenges" class="hide" hidden style="display:none">
+    <div id="challenges-root"></div>
   </section>
 
 </div>
@@ -352,7 +357,12 @@ function buildCATS(J){
         id: e.id || `custom_${String(idx+1).padStart(3,'0')}`,
         text_x: e.text_x, text_y: e.text_y, text_size: e.text_size,
         text_color: e.text_color, text_align: e.text_align, text_width: e.text_width,
-        modePairId: e.mode_pair_id || null
+        modePairId: e.mode_pair_id || null,
+        challengeId: e.challengeId || null,
+        challengeRole: e.challengeRole || null,
+        challengeStatus: e.challengeStatus || null,
+        challengeStartDate: e.challengeStartDate || null,
+        challengeEndDate: e.challengeEndDate || null
       })) },
     { k:'clean', label:'Bottle Clean', color:'--c-clean', src:'bottle_clean',
       type:'win', mode:'fixed', on:J.bottle_clean.enabled, from:0, to:24, every:1,
@@ -484,7 +494,7 @@ function buildPomoLaps(){
   pomoFrom=selStart;
   pomoTo=computePomoTo(pomoFrom, focus, brk, cycles);
 }
-let sel={k:'water',i:0}, grid=true, page='configure', range='day', connected=false, connectionBusy:null|'connecting'|'disconnecting'=null;
+let sel={k:'water',i:0}, grid=true, page=location.pathname==='/challenges'?'challenges':'configure', range='day', connected=false, connectionBusy:null|'connecting'|'disconnecting'=null;
 let bleClient: FrostBleClient|null=null;
 let deviceMac:string|null=null;
 let boundDeviceMac:string|null=null;
@@ -495,6 +505,7 @@ function showDeviceMac(mac=deviceMac){
 let firmwareVersion:string|null=null;
 let latestFirmwareVersion:string|null=null;
 let firmwareUpdateAvailable=false;
+let challengeUnreadCount=0;
 let firmwareInfoUnsubscribe:()=>void=()=>undefined;
 let storedDeviceName:string|null=null;
 let renameEditing=false, renameBusy=false;
@@ -564,7 +575,7 @@ function renderFirmwareStatus(info?:DeviceFirmwareInfo){
   const dot=document.getElementById('firmwareDot');
   const bell=document.getElementById('firmwareBell');
   const updateLabel=document.getElementById('firmwareUpdateLabel');
-  if(dot)dot.hidden=!firmwareUpdateAvailable;
+  if(dot)dot.hidden=!(firmwareUpdateAvailable||challengeUnreadCount>0);
   if(updateLabel)updateLabel.hidden=!firmwareUpdateAvailable;
   if(bell)bell.setAttribute('aria-label',firmwareUpdateAvailable?'Firmware update available':'Notifications');
   const title=document.getElementById('firmwareNoticeTitle');
@@ -1172,6 +1183,17 @@ const configureBridge={
   setEnabled:cfgSetEnabled, addTemplate:cfgAddTemplate, addMedicine:cfgAddMedicine, addCustom:cfgAddCustom, deleteGroup:cfgDeleteGroup,
   setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded,
   registerHabitIds:provider=>{cfgHabitIds=provider;},
+  setNotificationCount:count=>{
+    challengeUnreadCount=Math.max(0,Math.floor(Number(count)||0));
+    const dot=document.getElementById('firmwareDot');
+    if(dot)dot.hidden=!(firmwareUpdateAvailable||challengeUnreadCount>0);
+    const bell=document.getElementById('firmwareBell');
+    if(bell)bell.setAttribute('aria-label',challengeUnreadCount?`Notifications, ${challengeUnreadCount} unread`:'Notifications');
+  },
+  syncChallengeDevice:async configuration=>{
+    if(!bleClient?.isConnected)throw new Error('Connect your Frost device before syncing this challenge.');
+    await bleClient.sendJsonConfiguration(configuration);
+  },
   retryLoad:()=>{
     cfgLoad={status:'loading',message:''};cfgRestoreError='';notifyConfigure();
     window.dispatchEvent(new CustomEvent('frost-device-config-retry'));
@@ -1654,7 +1676,7 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
   const events=[];
   const uiCustom=[];   // cloud copy only: which custom habits are one-off dates
   (cus && cus.groups ? cus.groups : []).forEach((group, groupIndex)=>{
-    if(!cfgVisible(`custom:${group.id ?? groupIndex}`)) return;   // factory-default sample data, never added through this UI
+    if(group.challengeRole!=='device'&&!cfgVisible(`custom:${group.id ?? groupIndex}`)) return;   // keep challenge events device-managed, not user-editable habits
     const occIndices = cus.gi ? cus.gi.map((g,i)=>g===groupIndex?i:-1).filter(i=>i>=0) : [];
     const times = occIndices.length
       ? occIndices.map(i=>timeObj(cus.times[i]))
@@ -1666,9 +1688,13 @@ function toDeviceJSON({ includeUiMeta = false } = {}){
     const displayMs = Math.round((group.dur != null ? group.dur : (cus.dur || 1)) * 60000);
     const isAbsolute = group.type === 'absolute';
     const groupId = group.id || `custom_${String(events.length+1).padStart(3,'0')}`;
-    uiCustom.push({ id: groupId, type: isAbsolute ? 'absolute' : 'recurring', date: isAbsolute ? (group.date || localISODate()) : null });
+    uiCustom.push({ id: groupId, type: isAbsolute ? 'absolute' : 'recurring', date: isAbsolute ? (group.date || localISODate()) : null, ...(group.challengeId ? { challengeId: group.challengeId, challengeRole: group.challengeRole, challengeStatus: group.challengeStatus, startDate: group.challengeStartDate, endDate: group.challengeEndDate } : {}) });
+    const challengeDeviceExpired = group.challengeId && group.challengeRole === 'device' && (group.challengeStatus === 'completed' || group.challengeStatus === 'cancelled');
+    if(challengeDeviceExpired&&!includeUiMeta)return;
     // Specific (one-off) date: a single-day window. Events (recurring): this habit's own streak length.
-    const win = isAbsolute
+    const win = group.challengeId && group.challengeRole === 'device' && group.challengeStartDate && group.challengeEndDate
+      ? { start: group.challengeStartDate, end: group.challengeEndDate }
+      : isAbsolute
       ? { start: group.date || localISODate(), end: group.date || localISODate() }
       : cfgStreakWindowFor(`custom:${groupId}`, group.days);
     const ev={
@@ -2178,10 +2204,11 @@ function refreshDirty(){
   });
   document.querySelector('#tabs [data-p="device"]').style.color=dirty?'var(--sky)':'';
 }
-function show(p){
+function show(p, updateLocation=true){
   page=p;
+  if(updateLocation)history.pushState({},'',p==='challenges'?'/challenges':'/');
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.p===p));
-  ['configure','stats','device'].forEach(x=>{
+  ['configure','stats','device','challenges'].forEach(x=>{
     const el=document.getElementById('page-'+x);
     const active=x===p;
     el.classList.toggle('hide',!active);
@@ -2194,6 +2221,15 @@ function show(p){
   if(p==='device')renderDevice();
 }
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)show(b.dataset.p);});
+window.addEventListener('popstate',()=>show(location.pathname==='/challenges'?'challenges':location.pathname==='/device'?'device':location.pathname==='/stats'?'stats':'configure',false));
+window.addEventListener('frost-open-challenge',event=>{
+  const challengeId=(event as CustomEvent<{challengeId?:string}>).detail?.challengeId;
+  show('challenges');
+  if(challengeId){
+    history.replaceState({},'',`/challenges?challengeId=${encodeURIComponent(challengeId)}`);
+    window.dispatchEvent(new CustomEvent('frost-challenge-focus',{detail:{challengeId}}));
+  }
+});
 document.getElementById('statsSync').addEventListener('click',()=>syncStatistics(range==='day'?'today':'history'));
 document.getElementById('rangeCtl').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#rangeCtl button').forEach(x=>x.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');range=b.dataset.r;renderStats();});
@@ -2415,7 +2451,7 @@ document.getElementById('auraInput').addEventListener('keydown',e=>{if(e.key==='
 
 applyMode();
 window.addEventListener('resize',applyMode);
-show('configure');
+show(page,false);
 
 /* Live centre clock — updates every 15 s (hr:min only, no seconds).
    Prefer lightweight text/now-dot update; fall back to full redraw. */

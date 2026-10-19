@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { mountFrost } from './legacy';
 import HeaderControls from './components/HeaderControls';
 import DeviceFirmwareActions from './components/DeviceFirmwareActions';
 import DeviceBottleControls from './components/DeviceBottleControls';
 import DeviceBinding from './components/DeviceBinding';
-import { ConfigureClockPanel, ConfigureSidePanel, ConfigureChallengesPanel } from './pages/ConfigurePage';
+import { ConfigureClockPanel, ConfigureSidePanel } from './pages/ConfigurePage';
+import ChallengesPage from './features/challenges/ChallengesPage';
+import ChallengeNotifications from './features/challenges/components/ChallengeNotifications';
 import { MyDayStore } from './components/configure/store';
 import type { ConfigureBridge } from './components/configure/types';
 import { useDeviceConfig, useDeviceConfigHistory } from './DeviceConfigSync';
@@ -19,7 +21,9 @@ export default function HomeScreen({ user }: { user: User }) {
   const deviceFirmwareActionsRoot = useRef<Root | null>(null);
   const configureClockRoot = useRef<Root | null>(null);
   const configureSideRoot = useRef<Root | null>(null);
-  const configureChallengesRoot = useRef<Root | null>(null);
+  const challengesRoot = useRef<Root | null>(null);
+  const notificationsRoot = useRef<Root | null>(null);
+  const challengeBridge = useRef<ConfigureBridge | null>(null);
   const myDayStore = useRef<MyDayStore | null>(null);
   const [volume, setVolume] = useState(30);
   const [macAddress, setMacAddress] = useState<string | null>(null);
@@ -83,7 +87,11 @@ export default function HomeScreen({ user }: { user: User }) {
     window.dispatchEvent(new CustomEvent('frost-device-name', { detail: { deviceName: storedDeviceName } }));
   }, [storedDeviceName]);
 
-  const renderHeaderControls = (currentVolume: number, currentDndEnabled: boolean, deviceConnected: boolean) => headerControlsRoot.current?.render(
+  const dispatchQuickAction = useCallback((type: 'volume' | 'wifi' | 'dnd' | 'update', value?: number) => {
+    window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type, ...(value === undefined ? {} : { value }) } }));
+  }, []);
+
+  const renderHeaderControls = useCallback((currentVolume: number, currentDndEnabled: boolean, deviceConnected: boolean) => headerControlsRoot.current?.render(
     <HeaderControls
       volume={currentVolume}
       dndEnabled={currentDndEnabled}
@@ -94,21 +102,18 @@ export default function HomeScreen({ user }: { user: User }) {
       }}
       onDnd={() => dispatchQuickAction('dnd')}
     />,
-  );
+  ), [dispatchQuickAction]);
 
-  const dispatchQuickAction = (type: 'volume' | 'wifi' | 'dnd' | 'update', value?: number) => {
-    window.dispatchEvent(new CustomEvent('frost-quick-action', { detail: { type, ...(value === undefined ? {} : { value }) } }));
-  };
-
-  const renderBottleControls = (deviceConnected: boolean) => bottleControlsRoot.current?.render(
+  const renderBottleControls = useCallback((deviceConnected: boolean) => bottleControlsRoot.current?.render(
     <DeviceBottleControls isDeviceConnected={deviceConnected} />,
-  );
+  ), []);
 
   useEffect(() => {
     const dashboard = dashboardRef.current;
     if (!dashboard) return;
 
     const configureBridge = mountFrost(dashboard, user) as ConfigureBridge;
+    challengeBridge.current = configureBridge;
 
     // Configure ("My day") tab: the schedule lives in legacy.ts; the habit tracker
     // (streaks, challenges, audio library) is layered on top here, in the browser.
@@ -123,10 +128,13 @@ export default function HomeScreen({ user }: { user: User }) {
       configureSideRoot.current = createRoot(configureSideHost);
       configureSideRoot.current.render(<ConfigureSidePanel store={myDayStore.current} />);
     }
-    const configureChallengesHost = dashboard.querySelector<HTMLElement>('#configure-challenges-root');
-    if (configureChallengesHost) {
-      configureChallengesRoot.current = createRoot(configureChallengesHost);
-      configureChallengesRoot.current.render(<ConfigureChallengesPanel store={myDayStore.current} currentUid={user.uid} />);
+    const challengesHost = dashboard.querySelector<HTMLElement>('#challenges-root');
+    if (challengesHost) {
+      challengesRoot.current = createRoot(challengesHost);
+    }
+    const notificationsHost = dashboard.querySelector<HTMLElement>('#challenge-notifications-root');
+    if (notificationsHost) {
+      notificationsRoot.current = createRoot(notificationsHost);
     }
 
     const deviceBindingHost = dashboard.querySelector<HTMLElement>('#device-binding-root');
@@ -139,7 +147,6 @@ export default function HomeScreen({ user }: { user: User }) {
     const bottleControlsHost = dashboard.querySelector<HTMLElement>('#device-bottle-controls-root');
     if (bottleControlsHost) {
       bottleControlsRoot.current = createRoot(bottleControlsHost);
-      renderBottleControls(isDeviceConnected);
     }
 
     const deviceFirmwareActionsHost = dashboard.querySelector<HTMLElement>('#device-firmware-actions-root');
@@ -154,7 +161,6 @@ export default function HomeScreen({ user }: { user: User }) {
     const headerControlsHost = dashboard.querySelector<HTMLElement>('#header-controls-root');
     if (headerControlsHost) {
       headerControlsRoot.current = createRoot(headerControlsHost);
-      renderHeaderControls(volume, Boolean(storedDndEnabled), isDeviceConnected);
     }
     return () => {
       headerControlsRoot.current?.unmount();
@@ -169,21 +175,34 @@ export default function HomeScreen({ user }: { user: User }) {
       configureClockRoot.current = null;
       configureSideRoot.current?.unmount();
       configureSideRoot.current = null;
-      configureChallengesRoot.current?.unmount();
-      configureChallengesRoot.current = null;
+      challengesRoot.current?.unmount();
+      challengesRoot.current = null;
+      notificationsRoot.current?.unmount();
+      notificationsRoot.current = null;
+      challengeBridge.current = null;
       myDayStore.current?.dispose();
       myDayStore.current = null;
       dashboard.replaceChildren();
     };
-  }, [user]);
+  }, [user, dispatchQuickAction]);
+
+  useEffect(() => {
+    if (!challengesRoot.current || !challengeBridge.current) return;
+    challengesRoot.current.render(<ChallengesPage user={user} deviceConnected={isDeviceConnected} deviceMac={macAddress} bridge={challengeBridge.current} />);
+  }, [user, isDeviceConnected, macAddress, storedDeviceConfig]);
+
+  useEffect(() => {
+    if (!notificationsRoot.current || !challengeBridge.current) return;
+    notificationsRoot.current.render(<ChallengeNotifications user={user} deviceConnected={isDeviceConnected} deviceMac={macAddress} bridge={challengeBridge.current} />);
+  }, [user, isDeviceConnected, macAddress, storedDeviceConfig]);
 
   useEffect(() => {
     renderHeaderControls(volume, Boolean(storedDndEnabled), isDeviceConnected);
-  }, [volume, storedDndEnabled, isDeviceConnected]);
+  }, [volume, storedDndEnabled, isDeviceConnected, renderHeaderControls]);
 
   useEffect(() => {
     renderBottleControls(isDeviceConnected);
-  }, [isDeviceConnected]);
+  }, [isDeviceConnected, renderBottleControls]);
 
   return <main ref={dashboardRef} aria-label="FROST Aura device dashboard" />;
 }

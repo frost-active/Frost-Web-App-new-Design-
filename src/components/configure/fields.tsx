@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { clamp, cn, cssVars, from12, parseClock, timeText, to12 } from './format';
 

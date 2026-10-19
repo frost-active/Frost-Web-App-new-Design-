@@ -14,6 +14,11 @@ export type CfgGroup = {
   end?: string;
   enabled?: boolean;
   type?: 'absolute' | 'recurring';
+  challengeId?: string;
+  challengeRole?: 'source' | 'device';
+  challengeStatus?: 'pending' | 'active' | 'completed' | 'cancelled';
+  challengeStartDate?: string;
+  challengeEndDate?: string;
   date?: string | null;
   dur?: number;
 };
@@ -121,4 +126,6 @@ export type ConfigureBridge = {
   registerHabitIds: (provider: () => string[]) => void;
   /** try to load the last synced schedule again after it could not be read */
   retryLoad: () => void;
+  syncChallengeDevice: (configuration: unknown) => Promise<void>;
+  setNotificationCount: (count: number) => void;
 };

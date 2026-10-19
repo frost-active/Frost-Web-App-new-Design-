@@ -5,7 +5,7 @@ import type { CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureVie
    The My day model.
    • The SCHEDULE (times, durations, days, labels, goal, on/off) is read live from
      the device schedule in src/legacy.ts and written back through the bridge.
-   • The TRACKER (today's count, streaks, challenges, audio library) is kept here and
+  • The TRACKER (today's count, streaks, audio library) is kept here and
      stored in this browser (localStorage), exactly like the My day prototype.
    A "habit" is a device reminder: each category is one habit, except Medication
    (one habit per medicine) and Habit/custom (one per event).
@@ -68,11 +68,9 @@ export type Habit = {
 
 export type Rec = { done: number; streak: number; best: number; log: number[]; streakDays: number; streakStartDate?: string; streakStartScheduled?: boolean; st: 'active' | 'formed'; a0: number };
 export type HabitVM = Habit & { done: number; streak: number; best: number; log: number[]; streakDays: number; streakStartDate: string; streakStartScheduled: boolean; formed: boolean; audioId: string | null; a0: number; day: number; dayTotal: number };
-export type Person = { n: string; p: number; v: number };
-export type Challenge = { id: number; hk: string; len: number; start: number; people: Person[] };
 export type Track = { id: string; name: string; size: number; type: string; added: number; dataUrl?: string };
 
-type Tracker = { t0: number; today: number; removed: string[]; added: string[]; rec: Record<string, Rec>; ch: Challenge[]; nid: number; library: Track[]; audio: Record<string, string | null> };
+type Tracker = { t0: number; today: number; removed: string[]; added: string[]; rec: Record<string, Rec>; nid: number; library: Track[]; audio: Record<string, string | null> };
 
 export type Snapshot = {
   habits: HabitVM[];
@@ -85,7 +83,6 @@ export type Snapshot = {
   nowH: number;
   today: string;
   pomo: { focus: number; brk: number; cycles: number };
-  challenges: Challenge[];
   library: Track[];
   day: number;
   room: number;
@@ -128,6 +125,7 @@ export function deriveHabits(view: ConfigureView, removed: ReadonlySet<string>, 
     const color = `var(${cat.color})`;
     if ((cat.k === 'meds' || cat.k === 'custom') && cat.groups) {
       cat.groups.forEach((group, gidx) => {
+        if (cat.k === 'custom' && group.challengeRole === 'device') return;
         const occ = occurrences(cat, gidx);
         if (!occ.length) return;
         const gid = String(group.id ?? gidx);
@@ -181,22 +179,16 @@ function isDue(h: Habit, idx: number, t0: number, a0: number, streakStartDate?: 
   return true;
 }
 
-/* deterministic pseudo-random, so the simulated colleagues behave the same on every load */
-function h32(a: number, b: number, c: number): number {
-  let x = (a * 73856093) ^ (b * 19349663) ^ (c * 83492791);
-  x = Math.imul(x ^ (x >>> 15), 2246822507); x ^= x >>> 13;
-  return (x >>> 0) / 4294967296;
-}
-
-const blank = (): Tracker => ({ t0: dayNumber(new Date()), today: 0, removed: [], added: [], rec: {}, ch: [], nid: 1, library: [], audio: {} });
+const blank = (): Tracker => ({ t0: dayNumber(new Date()), today: 0, removed: [], added: [], rec: {}, nid: 1, library: [], audio: {} });
 const storageKey = (uid: string) => `frost_aura_myday_v1:${uid}`;
 function load(uid: string): Tracker | null {
   try {
     const raw = localStorage.getItem(storageKey(uid));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Tracker>;
+    const parsed = JSON.parse(raw) as Partial<Tracker> & { ch?: unknown };
+    delete parsed.ch;
     const base = blank();
-    return { ...base, ...parsed, rec: parsed.rec ?? {}, removed: parsed.removed ?? [], added: parsed.added ?? [], ch: parsed.ch ?? [], library: parsed.library ?? [], audio: parsed.audio ?? {} };
+    return { ...base, ...parsed, rec: parsed.rec ?? {}, removed: parsed.removed ?? [], added: parsed.added ?? [], library: parsed.library ?? [], audio: parsed.audio ?? {} };
   } catch { return null; }
 }
 
@@ -239,6 +231,11 @@ export class MyDayStore {
   private save(): void { try { localStorage.setItem(storageKey(this.uid), JSON.stringify(this.T)); } catch { /* storage full or blocked */ } }
   private commit(): void { this.version++; this.save(); this.emit(); }
   toast(message: string): void { this.bridge.toast(message); }
+  private challengeLocked(habit: { group: CfgGroup | null }): boolean {
+    if (!habit.group?.challengeId || habit.group.challengeStatus === 'completed' || habit.group.challengeStatus === 'cancelled') return false;
+    this.toast('This habit is locked while its challenge is pending or active.');
+    return true;
+  }
 
   /** The last synced schedule has just been (re)loaded, so what is on screen is exactly that. Whatever else this
    *  browser remembered — habits added or deleted but never synced — is an unsynced draft and is dropped, and each
@@ -321,7 +318,6 @@ export class MyDayStore {
         r.done = 0; r.best = Math.max(r.best, r.streak);
         if (r.st === 'active' && r.streak >= r.streakDays) r.st = 'formed';
       });
-      this.T.ch.forEach((c) => c.people.forEach((p, i) => { if (this.T.today - c.start < c.len && h32(c.id, this.T.today, i) < p.p) p.v++; }));
       this.T.today++;
     }
     this.save();
@@ -334,7 +330,6 @@ export class MyDayStore {
     if (this.cache && this.cache.view === view && this.cache.version === this.version) return this.cache.snap;
     const removed = new Set(this.T.removed);
     const added = new Set(this.T.added);
-    const ack = view.ackToday || {};
     const habits: HabitVM[] = deriveHabits(view, removed, added).map((h) => {
       const r = this.T.rec[h.id];
       const historicalStreak = this.historyStreak(h, view.ackHistory, view.today, r?.a0 ?? this.T.today, r?.streakStartDate);
@@ -356,7 +351,7 @@ export class MyDayStore {
     if (!selected) selected = onDial[0] ?? habits[0] ?? null;
     const snap: Snapshot = {
       habits, onDial, selected, cueIdx, dnd: view.dnd, dndOn: view.dndOn, nowH: view.nowH, today: view.today, pomo: view.pomo,
-      challenges: this.T.ch, library: this.T.library, day: this.T.today, room: Math.max(0, MAX_DIAL - onDial.length),
+      library: this.T.library, day: this.T.today, room: Math.max(0, MAX_DIAL - onDial.length),
       medCount: habits.filter((h) => h.k === 'meds').length, sync: view.sync,
     };
     this.cache = { view, version: this.version, snap };
@@ -370,6 +365,7 @@ export class MyDayStore {
   private form(h: Habit, r: Rec): void { r.st = 'formed'; this.toast(`${displayName(h)} is formed — it keeps running on the dial`); }
 
   setStreakDays(h: HabitVM, n: number): void {
+    if (this.challengeLocked(h)) return;
     const r = this.rec(h.id);
     const v = clamp(Math.round(n), FORM_MIN, FORM_MAX);
     if (v === r.streakDays) return;
@@ -383,6 +379,7 @@ export class MyDayStore {
   }
 
   setStreakStartDate(h: HabitVM, value: string): void {
+    if (this.challengeLocked(h)) return;
     const date = new Date(`${value}T00:00:00`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(date.getTime()) || isoDate(date) !== value) return;
     if (value < todayISO()) { this.toast('Choose today or a future date for the streak schedule'); return; }
@@ -447,52 +444,57 @@ export class MyDayStore {
   }
 
   park(h: HabitVM): void {
+    if (this.challengeLocked(h)) return;
     this.bridge.setEnabled(h.k, h.gid, false);
     const r = this.rec(h.id); r.streak = 0; r.done = 0;
     this.commit();
     this.toast(`${displayName(h)} parked — the streak stops here`);
   }
   resume(h: HabitVM): void {
+    if (this.challengeLocked(h)) return;
     this.bridge.setEnabled(h.k, h.gid, true);
     const r = this.rec(h.id); r.a0 = this.T.today; r.log = []; r.streak = 0; r.done = 0;
     this.commit();
     this.toast(`${displayName(h)} back on the dial · day 1 of ${r.streakDays}`);
   }
   remove(h: HabitVM): void {
+    if (this.challengeLocked(h)) return;
     if (h.gid) this.bridge.deleteGroup(h.k, h.gid);
     else { this.bridge.setEnabled(h.k, null, false); if (!this.T.removed.includes(h.id)) this.T.removed.push(h.id); }
     delete this.T.rec[h.id]; delete this.T.audio[h.id];
-    this.T.ch = this.T.ch.filter((c) => c.hk !== h.id);
     this.commit();
     this.toast('Habit deleted');
   }
 
   /* ---------- schedule edits (all land in the device schedule) ---------- */
-  setCueTime(h: Habit, cue: number, hour: number): void { this.bridge.setCueTime(h.k, h.occ[cue], hour); }
+  setCueTime(h: Habit, cue: number, hour: number): void { if (!this.challengeLocked(h)) this.bridge.setCueTime(h.k, h.occ[cue], hour); }
   setCueCount(h: Habit, n: number): void {
+    if (this.challengeLocked(h)) return;
     this.bridge.setCueCount(h.k, h.gid, n);
     this.toast(`${displayName(h)} now has ${n} cue${n === 1 ? '' : 's'}${h.k === 'meds' || ['eye', 'stretch', 'walk'].includes(h.k) ? ` · target ${n} ${unitFor(n, h.unit)}` : ''}`);
   }
-  removeCue(h: Habit, cue: number): void { this.bridge.removeCue(h.k, h.occ[cue]); }
-  setDuration(h: Habit, minutes: number): void { this.bridge.setDuration(h.k, h.gid, minutes); this.toast(`Cue lasts ${Math.round(minutes)} min`); }
-  setRange(h: Habit, cue: number, startHour: number, minutes: number): void { this.bridge.setRange(h.k, h.occ[cue], startHour, minutes); }
+  removeCue(h: Habit, cue: number): void { if (!this.challengeLocked(h)) this.bridge.removeCue(h.k, h.occ[cue]); }
+  setDuration(h: Habit, minutes: number): void { if (this.challengeLocked(h)) return; this.bridge.setDuration(h.k, h.gid, minutes); this.toast(`Cue lasts ${Math.round(minutes)} min`); }
+  setRange(h: Habit, cue: number, startHour: number, minutes: number): void { if (!this.challengeLocked(h)) this.bridge.setRange(h.k, h.occ[cue], startHour, minutes); }
   setGoal(ml: number): void { this.bridge.setWaterGoal(ml); }
   setIntervalDays(days: number): void { this.bridge.setIntervalDays(days); this.toast(`Bottle Clean every ${days} day${days === 1 ? '' : 's'}`); }
   pomodoro(field: PomoField, delta: number): void { this.bridge.pomodoro(field, delta); }
   musicTracks(category: MusicCategory): number[] { return this.bridge.musicTracks(category); }
   setMusicTracks(category: MusicCategory, trackIds: number[]): void { this.bridge.setMusicTracks(category, trackIds); }
   duplicateWindow(h: Habit, cue: number): void {
+    if (this.challengeLocked(h)) return;
     if (h.times.length >= 6) { this.toast('That’s plenty of windows for one day — remove one before adding another'); return; }
     this.bridge.duplicateWindow(h.k, h.occ[cue]);
     this.toast(h.k === 'pomodoro' ? 'New window added to the clock, starting right after this one ends' : 'New session added to the clock');
   }
   toggleDay(h: HabitVM, day: number): void {
+    if (this.challengeLocked(h)) return;
     if (h.days.includes(day) && h.days.length < 2) { this.toast('At least one active day is needed'); return; }
     const nextDays = h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day].sort((a, b) => a - b);
     this.bridge.toggleDay(h.k, h.gid, day);
     this.pushStreakWindow(h, nextDays, h.streakDays, h.streakStartDate);
   }
-  setLabel(h: Habit, value: string): void { if (h.gid) this.bridge.setLabel(h.k, h.gid, value); }
+  setLabel(h: Habit, value: string): void { if (!this.challengeLocked(h) && h.gid) this.bridge.setLabel(h.k, h.gid, value); }
   /** Medication's own course start date — the end date is worked out automatically (streak length × active days). */
   setMedDate(h: HabitVM, value: string): void {
     if (!h.gid) return;
@@ -503,6 +505,7 @@ export class MyDayStore {
     this.pushStreakWindow(h, h.days, h.streakDays, value);
   }
   setCustomMode(h: HabitVM, mode: 'recurring' | 'absolute'): void {
+    if (this.challengeLocked(h)) return;
     if (!h.gid) return;
     this.bridge.setCustomMode(h.gid, mode);
     if (mode === 'absolute') {
@@ -515,6 +518,7 @@ export class MyDayStore {
     } else this.pushStreakWindow(h, h.days, h.streakDays, h.streakStartDate);
   }
   setCustomDate(h: Habit, value: string): void {
+    if (this.challengeLocked(h)) return;
     if (!h.gid) return;
     const record = this.rec(h.id);
     record.streakStartDate = value;
@@ -527,6 +531,7 @@ export class MyDayStore {
 
   /* ---------- audio library (Meditation, Healing, Pomodoro, custom habits) ---------- */
   uploadTrack(h: HabitVM, file: File): Promise<boolean> {
+    if (this.challengeLocked(h)) return Promise.resolve(false);
     if (!/^audio\//.test(file.type) && !/\.(mp3|wav|m4a|ogg|aac|flac)$/i.test(file.name)) { this.toast('Choose an audio file (mp3, wav, m4a…)'); return Promise.resolve(false); }
     if (file.size > 8 * 1024 * 1024) { this.toast('Keep audio under 8 MB'); return Promise.resolve(false); }
     const entry: Track = { id: 'a' + this.T.nid++, name: file.name.replace(/\.[^.]+$/, '').slice(0, 48) || 'Track', size: file.size, type: file.type || 'audio', added: Date.now() };
@@ -544,38 +549,20 @@ export class MyDayStore {
     });
   }
   pickTrack(h: HabitVM, id: string): void {
+    if (this.challengeLocked(h)) return;
     if (h.audioId !== id) this.T.audio[h.id] = id;
     const t = this.T.library.find((x) => x.id === id);
     this.commit(); this.toast(t ? `"${t.name}" assigned to ${displayName(h)}` : 'Track assigned');
   }
   deleteTrack(id: string): void {
+    const lockedUse = this.habitsNow().some((habit) => habit.group?.challengeId
+      && !['completed', 'cancelled'].includes(habit.group.challengeStatus || '')
+      && this.T.audio[habit.id] === id);
+    if (lockedUse) { this.toast('This track is assigned to a locked challenge habit.'); return; }
     this.T.library = this.T.library.filter((t) => t.id !== id);
     Object.keys(this.T.audio).forEach((k) => { if (this.T.audio[k] === id) this.T.audio[k] = null; });
     this.commit(); this.toast('Removed from music library');
   }
-  clearAudio(h: HabitVM): void { this.T.audio[h.id] = null; this.commit(); this.toast('Audio cleared from this habit'); }
+  clearAudio(h: HabitVM): void { if (this.challengeLocked(h)) return; this.T.audio[h.id] = null; this.commit(); this.toast('Audio cleared from this habit'); }
 
-  /* ---------- challenges (colleagues are simulated) ---------- */
-  createChallenge(hk: string, len: number, who: string[]): void {
-    const id = this.T.nid++;
-    this.T.ch.push({ id, hk, len, start: this.T.today, people: who.map((n, i) => ({ n, p: 0.55 + h32(id, i, 7) * 0.4, v: 0 })) });
-    this.commit(); this.toast('Challenge sent');
-  }
-  inviteLink(): void { this.toast(`Invite link copied — frostactive.in/j/${this.T.today + 41}K7`); }
-}
-
-/* ---------- challenge scoring ---------- */
-export function myScore(c: Challenge, h: HabitVM | undefined, today: number, a0 = 0): number {
-  if (!h) return 0;
-  const from = Math.max(0, c.start - a0), to = Math.min(h.log.length, from + c.len);
-  let v = 0;
-  for (let i = from; i < to; i++) if (h.log[i] > 0) v++;
-  if (today - c.start < c.len && h.done >= h.target) v++;
-  return v;
-}
-export function board(c: Challenge, h: HabitVM | undefined, today: number, a0: number): Array<{ n: string; v: number; me: boolean }> {
-  const rows = c.people.map((p) => ({ n: p.n, v: p.v, me: false }));
-  rows.push({ n: 'You', v: myScore(c, h, today, a0), me: true });
-  rows.sort((a, b) => b.v - a.v || (a.me ? -1 : 1));
-  return rows;
 }
