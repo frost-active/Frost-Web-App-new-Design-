@@ -26,7 +26,7 @@ export default function DeviceBottleControls({ isDeviceConnected }: Props) {
       <p className="device-bottle-controls-help">
         {isDeviceConnected
           ? 'Choose whether water consumption learning is enabled on your FROST Aura device.'
-          : 'Connect a FROST Aura device to enable or disable water consumption learning.'}
+          : 'Connect a FROST Aura device to enable  water consumption learning.'}
       </p>
     </article>
   );
