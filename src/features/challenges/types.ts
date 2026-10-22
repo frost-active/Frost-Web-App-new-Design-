@@ -20,6 +20,7 @@ export type ChallengeHabitSnapshot = ChallengeHabitDraft & {
 };
 
 export type Challenge = {
+  name?: string;
   creatorId: string;
   creatorName: string;
   habit: ChallengeHabitSnapshot;

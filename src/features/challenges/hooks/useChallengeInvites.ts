@@ -4,7 +4,17 @@ import { firebaseDb } from '../../../firebase';
 import type { ChallengeHabitSnapshot, ChallengeParticipant } from '../types';
 import type { ChallengeRecord } from './useMyChallenges';
 
-export type ChallengeInvite = ChallengeParticipant & { challengeId: string; creatorName: string; habitLabel: string; habit: ChallengeHabitSnapshot; startDate: string; endDate: string };
+export type ChallengeInvite = ChallengeParticipant & {
+  challengeId: string;
+  creatorName: string;
+  name: string;
+  habitLabel: string;
+  habit: ChallengeHabitSnapshot;
+  startDate: string;
+  endDate: string;
+  durationDays: number;
+  timezone: string;
+};
 type InviteResult = { challengeIds: string; invites: ChallengeInvite[] };
 
 export function useChallengeInvites(challenges: ChallengeRecord[], uid: string) {
@@ -21,9 +31,10 @@ export function useChallengeInvites(challenges: ChallengeRecord[], uid: string) 
         if (!snapshot.exists() || !challenge) values.delete(challengeId);
         else values.set(challengeId, {
           ...(snapshot.data() as ChallengeParticipant), challengeId,
-          creatorName: challenge.creatorName, habitLabel: challenge.habit.label,
+          creatorName: challenge.creatorName, name: challenge.name || challenge.habit.label, habitLabel: challenge.habit.label,
           habit: challenge.habit,
           startDate: challenge.startDate, endDate: challenge.endDate,
+          durationDays: challenge.durationDays, timezone: challenge.timezone,
         });
         setResult({ challengeIds, invites: [...values.values()] });
       }, () => {

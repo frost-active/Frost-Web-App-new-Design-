@@ -161,6 +161,7 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   const uid = requireUser(request);
   const data = request.data || {};
   const idempotencyKey = cleanString(data.idempotencyKey, 'Idempotency key', 100);
+  const challengeName = cleanString(data.name, 'Challenge name', 60);
   const challengeId = createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex').slice(0, 32);
   const challengeRef = db.doc(`challenges/${challengeId}`);
   const existingChallenge = await challengeRef.get();
@@ -195,6 +196,7 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   let deviceEventId = '';
   const participantIds = [uid, ...invitedUsers.map((user) => user.uid)];
   const challenge = {
+    name: challengeName,
     creatorId: uid,
     creatorName: creator.displayName || creator.email || 'Frost user',
     habit: null,
@@ -241,7 +243,7 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
         ...user, role: 'invitee', status: 'invited', habitId: '', deviceSyncStatus: 'pending', invitedAt: FieldValue.serverTimestamp(),
       });
       transaction.create(db.doc(`users/${user.uid}/notifications/${notificationId('challenge_invite', challengeId, user.uid)}`),
-        notificationData('challenge_invite', challengeId, `${challenge.creatorName} invited you`, `${challenge.creatorName} challenged you to ${habit.label}.`));
+        notificationData('challenge_invite', challengeId, `${challenge.creatorName} invited you`, `${challenge.creatorName} challenged you to ${challenge.name} (${habit.label}).`));
       transaction.create(db.doc(`mail/challenge_${challengeId}_${user.uid}`), {
         to: user.email,
         message: inviteEmail(challenge, challengeId),
@@ -251,9 +253,24 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   return { challengeId, endDate, deviceEventId };
 });
 
+exports.renameChallenge = onCall({ region: REGION }, async (request) => {
+  const uid = requireUser(request);
+  const challengeId = cleanString(request.data?.challengeId, 'Challenge', 100);
+  const name = cleanString(request.data?.name, 'Challenge name', 60);
+  const challengeRef = db.doc(`challenges/${challengeId}`);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(challengeRef);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Challenge not found.');
+    if (snapshot.data()?.creatorId !== uid) throw new HttpsError('permission-denied', 'Only the challenge creator can rename it.');
+    transaction.update(challengeRef, { name, updatedAt: FieldValue.serverTimestamp() });
+  });
+  return { name };
+});
+
 function inviteEmail(challenge, challengeId) {
   const name = escapeHtml(challenge.creatorName);
   const habit = escapeHtml(challenge.habit.label);
+  const challengeName = escapeHtml(challenge.name || challenge.habit.label);
   const link = `https://habit.frostactive.com/challenges?challengeId=${encodeURIComponent(challengeId)}`;
   const lines = [
     `1. Open habit.frostactive.com and connect your Frost device.`,
@@ -261,9 +278,9 @@ function inviteEmail(challenge, challengeId) {
     `3. Accept before ${challenge.startDate}. Your device syncs automatically.`,
     `4. Track everyone's progress on the Leaderboard.`,
   ];
-  const text = `${challenge.creatorName} challenged you to ${challenge.habit.label} for ${challenge.durationDays} days (${challenge.startDate} to ${challenge.endDate}).\n\n${lines.join('\n')}\n\n${link}`;
-  const html = `<p>${name} challenged you to <strong>${habit}</strong> for ${challenge.durationDays} days (${challenge.startDate} to ${challenge.endDate}).</p><ol>${lines.map((line) => `<li>${escapeHtml(line.replace(/^\d+\. /, ''))}</li>`).join('')}</ol><p><a href="${link}">Open your challenge</a></p>`;
-  return { subject: `${challenge.creatorName} challenged you: ${challenge.habit.label} for ${challenge.durationDays} days`, text, html };
+  const text = `${challenge.creatorName} challenged you to ${challenge.name || challenge.habit.label} (${challenge.habit.label}) for ${challenge.durationDays} days (${challenge.startDate} to ${challenge.endDate}).\n\n${lines.join('\n')}\n\n${link}`;
+  const html = `<p>${name} challenged you to <strong>${challengeName}</strong> (${habit}) for ${challenge.durationDays} days (${challenge.startDate} to ${challenge.endDate}).</p><ol>${lines.map((line) => `<li>${escapeHtml(line.replace(/^\d+\. /, ''))}</li>`).join('')}</ol><p><a href="${link}">Open your challenge</a></p>`;
+  return { subject: `${challenge.creatorName} challenged you: ${challenge.name || challenge.habit.label} for ${challenge.durationDays} days`, text, html };
 }
 
 function escapeHtml(value) {

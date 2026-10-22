@@ -16,8 +16,27 @@ const { cleanup, fireEvent, render, screen } = await import('@testing-library/re
 const { default: DeviceGate } = await import('../components/DeviceGate.tsx');
 const { default: ChallengeConfigForm } = await import('../components/ChallengeConfigForm.tsx');
 const { default: ChallengeHabitForm } = await import('../components/ChallengeHabitForm.tsx');
+const { default: ChallengeDial } = await import('../components/ChallengeDial.tsx');
 const { default: ChallengeJsonActions } = await import('../components/ChallengeJsonActions.tsx');
 const { default: InviteCard } = await import('../components/InviteCard.tsx');
+const { scrollToChangedChallengeStep } = await import('../services/challengeStepScroll.ts');
+
+test('challenge step scrolling only runs on changes and respects reduced motion', () => {
+  const calls = [];
+  const target = { scrollIntoView: (options) => calls.push(options) };
+
+  scrollToChangedChallengeStep(1, 1, target, false);
+  assert.equal(calls.length, 0);
+
+  scrollToChangedChallengeStep(1, 2, target, false);
+  assert.deepEqual(calls[0], { behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+
+  scrollToChangedChallengeStep(2, 3, target, true);
+  assert.deepEqual(calls[1], { behavior: 'auto', block: 'nearest', inline: 'nearest' });
+
+  scrollToChangedChallengeStep(2, 3, null, false);
+  assert.equal(calls.length, 2);
+});
 
 test('device gate appears only when the Frost device is disconnected', () => {
   const disconnected = render(createElement(DeviceGate, { connected: false }));
@@ -71,7 +90,8 @@ test('challenge date preview counts streak days only on selected weekdays', () =
 test('invite card dispatches Accept and Decline actions', async () => {
   const actions = [];
   const invite = {
-    challengeId: 'challenge-1', creatorName: 'Creator', habitLabel: 'Reading', startDate: '2026-10-16', endDate: '2026-11-05',
+    challengeId: 'challenge-1', creatorName: 'Creator', name: 'Morning routine', habitLabel: 'Reading', startDate: '2026-10-16', endDate: '2026-11-05',
+    durationDays: 15, timezone: 'UTC',
     habit: { habitId: 'source', label: 'Reading', times: [{ h: 14, m: 0 }], days: ['mon', 'wed', 'fri'], display_ms: 60000, text_x: 120, text_y: 100, text_size: 1, text_color: 65535, text_align: 1, text_width: 180 },
     uid: 'friend', email: 'friend@example.com', displayName: 'Friend', role: 'invitee', status: 'invited', habitId: '',
     deviceSyncStatus: 'pending', invitedAt: null,
@@ -81,6 +101,11 @@ test('invite card dispatches Accept and Decline actions', async () => {
     onRespond: async (action) => { actions.push(action); },
   }));
   assert.ok(screen.getByText('Creator · Oct 16, 2026 to Nov 5, 2026'));
+  assert.ok(screen.getByText('Morning routine'));
+  assert.ok(screen.getByRole('img', { name: /Reading: Day \d+ of 15/ }));
+  assert.equal(document.querySelector('.cfg-ctrName')?.textContent, 'Reading');
+  assert.equal(document.querySelectorAll('.cfg-time-node').length, 1);
+  assert.match(screen.getByText('15 scheduled days').textContent, /15 scheduled days/);
   assert.ok(screen.getByText('Active days · Monday, Wednesday, Friday'));
   assert.ok(screen.getByText('Cue times · 2:00 PM'));
   assert.ok(screen.getByText(/Preparing the challenge device event ID/));
@@ -111,6 +136,30 @@ test('challenge habit editor configures custom cues and days without audio contr
   fireEvent.click(screen.getByRole('button', { name: 'Sat' }));
   assert.equal(value.days.includes('sat'), false);
   assert.equal(screen.queryByText(/audio|upload music/i), null);
+  cleanup();
+});
+
+test('challenge dial reuses Configure geometry, labeled hour ticks, cue arcs, and challenge-day center', () => {
+  const view = render(createElement(ChallengeDial, {
+    name: 'Morning Reading',
+    habitLabel: 'Read',
+    cueTimes: [{ h: 8, m: 0 }, { h: 20, m: 0 }],
+    cueDurationMs: 600000,
+    startDate: '2026-10-19',
+    timezone: 'UTC',
+    activeDays: ['mon', 'wed', 'fri'],
+    durationDays: 21,
+  }));
+
+  const dial = screen.getByRole('img', { name: /Morning Reading: Day \d+ of 21/ });
+  assert.equal(dial.getAttribute('viewBox'), '0 0 640 640');
+  assert.equal(view.container.querySelectorAll('.cfg-ticknum').length, 12);
+  assert.equal(view.container.querySelector('.cfg-ticknum')?.textContent, '12');
+  assert.equal(view.container.querySelectorAll('.cfg-seg').length, 2);
+  assert.equal(view.container.querySelectorAll('.cfg-time-node').length, 2);
+  assert.equal(view.container.querySelector('.cfg-dosetrk') !== null, true);
+  assert.match(view.container.querySelector('.cfg-ctrStreak')?.textContent || '', /^Day \d+ of 21$/);
+  assert.match(view.container.querySelector('.cfg-ctrSub')?.textContent || '', /OF 21 SCHEDULED DAYS/);
   cleanup();
 });
 

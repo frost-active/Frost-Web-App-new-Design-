@@ -3,6 +3,7 @@ import { firebaseFunctions } from '../../../firebase';
 import type { ChallengeHabitDraft } from '../types';
 
 export type CreateChallengeInput = {
+  name: string;
   habit: ChallengeHabitDraft;
   deviceEventId?: string;
   startDate: string;
@@ -30,6 +31,11 @@ export async function getChallengeDeviceEventId(): Promise<string> {
 export async function createChallenge(input: CreateChallengeInput): Promise<CreateChallengeResult> {
   const callable = httpsCallable<CreateChallengeInput, CreateChallengeResult>(firebaseFunctions, 'createChallenge');
   return (await callable(input)).data;
+}
+
+export async function renameChallenge(input: { challengeId: string; name: string }): Promise<void> {
+  const callable = httpsCallable<typeof input, { name: string }>(firebaseFunctions, 'renameChallenge');
+  await callable(input);
 }
 
 export async function respondToChallenge(input: RespondToChallengeInput & { deviceEventId?: string }): Promise<RespondToChallengeResult> {

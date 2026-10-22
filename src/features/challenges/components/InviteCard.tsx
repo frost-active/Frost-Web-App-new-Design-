@@ -8,6 +8,7 @@ import { ChallengeDeviceSyncError, respondAndSyncChallenge } from '../services/c
 import { useChallengeDeviceEventId } from '../hooks/useChallengeDeviceEventId';
 import DeviceGate from './DeviceGate';
 import ChallengeJsonActions from './ChallengeJsonActions';
+import ChallengeDial from './ChallengeDial';
 
 type Props = { invite: ChallengeInvite; uid: string; deviceConnected: boolean; deviceMac: string | null; bridge: ConfigureBridge; onRespond?: (action: 'accept' | 'decline') => Promise<void> };
 
@@ -41,10 +42,20 @@ export default function InviteCard({ invite, uid, deviceConnected, deviceMac, br
   };
 
   return <article className="challenge-invite-card">
-    <div><strong>{invite.habitLabel}</strong>
-      <p>{invite.creatorName} · {formatChallengeDate(invite.startDate)} to {formatChallengeDate(invite.endDate)}</p>
-      <p className="challenge-active-days">Active days · {formatChallengeActiveDays(invite.habit.days)}</p>
-      <p className="challenge-cue-times">Cue times · {formatChallengeCueTimes(invite.habit.times)}</p></div>
+    <div className="challenge-invite-layout">
+      <div className="challenge-invite-dial">
+        <ChallengeDial name={invite.habitLabel} habitLabel={invite.habitLabel} cueTimes={invite.habit.times}
+          cueDurationMs={invite.habit.display_ms} startDate={invite.startDate} timezone={invite.timezone || 'Asia/Kolkata'}
+          activeDays={invite.habit.days} durationDays={invite.durationDays} />
+      </div>
+      <div className="challenge-invite-details"><strong>{invite.name || invite.habitLabel}</strong>
+        <p>{invite.creatorName} · {formatChallengeDate(invite.startDate)} to {formatChallengeDate(invite.endDate)}</p>
+        <p className="challenge-invite-habit">Habit · {invite.habitLabel}</p>
+        <p className="challenge-invite-duration">{invite.durationDays} scheduled days</p>
+        <p className="challenge-active-days">Active days · {formatChallengeActiveDays(invite.habit.days)}</p>
+        <p className="challenge-cue-times">Cue times · {formatChallengeCueTimes(invite.habit.times)}</p>
+      </div>
+    </div>
     {invite.status === 'invited' ? <>
       <DeviceGate connected={deviceConnected} />
       <div className="challenge-invite-actions">
