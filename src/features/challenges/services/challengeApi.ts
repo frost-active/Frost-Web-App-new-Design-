@@ -5,6 +5,7 @@ import type { ChallengeHabitDraft } from '../types';
 export type CreateChallengeInput = {
   name: string;
   habit: ChallengeHabitDraft;
+  includeCreator: boolean;
   deviceEventId?: string;
   startDate: string;
   durationDays: number;

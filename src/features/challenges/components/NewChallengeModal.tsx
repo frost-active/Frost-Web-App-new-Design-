@@ -41,6 +41,7 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
   const [durationDays, setDurationDays] = useState(21);
   const [email, setEmail] = useState('');
   const [invitees, setInvitees] = useState<ChallengeUser[]>([]);
+  const [includeCreator, setIncludeCreator] = useState(true);
   const [busy, setBusy] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
@@ -48,7 +49,8 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
   const [retry, setRetry] = useState<RetryState | null>(null);
   const [assignedDeviceEventId, setAssignedDeviceEventId] = useState<string | null>(null);
   const [eventIdRequest, setEventIdRequest] = useState(0);
-  const { deviceEventId: candidateDeviceEventId, loading: eventIdLoading, error: eventIdError } = useChallengeDeviceEventId(true, String(eventIdRequest));
+  const { deviceEventId: candidateDeviceEventId, loading: eventIdLoading, error: eventIdError } =
+    useChallengeDeviceEventId(includeCreator && step === 3, String(eventIdRequest));
   const snapshot = isValidChallengeHabitDraft(habit) ? {
     ...habit, habitId: '', text_x: 120, text_y: 100, text_size: 1,
     text_color: 65535, text_align: 1, text_width: 180,
@@ -56,7 +58,7 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_CHALLENGE_TIMEZONE;
   const endDate = (() => { try { return computeEndDate(startDate, durationDays, habit.days); } catch { return ''; } })();
   const deviceEventId = assignedDeviceEventId || candidateDeviceEventId;
-  const deviceJson = snapshot && endDate && deviceEventId ? buildChallengeDeviceJson({
+  const deviceJson = includeCreator && snapshot && endDate && deviceEventId ? buildChallengeDeviceJson({
     habit: { ...snapshot, habitId: deviceEventId },
     startDate,
     endDate,
@@ -64,9 +66,9 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
   }) : null;
   const scheduleError = serverToday ? getChallengeScheduleError(startDate, serverToday, habit.times, currentMinuteOfDay) : null;
   const validStep = step === 1 ? Boolean(snapshot && challengeName.trim() && challengeName.trim().length <= 60
-    && startDate && endDate && serverToday && currentMinuteOfDay !== null && !scheduleError && candidateDeviceEventId)
+    && startDate && endDate && serverToday && currentMinuteOfDay !== null && !scheduleError)
     : step === 2 ? invitees.length > 0
-    : Boolean(snapshot && deviceConnected);
+    : Boolean(snapshot && (!includeCreator || (deviceConnected && candidateDeviceEventId)));
 
   useLayoutEffect(() => {
     const lastStep = previousStep.current;
@@ -102,7 +104,7 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
   };
 
   const send = async () => {
-    if (!snapshot || !deviceConnected || !validStep || completed) return;
+    if (!snapshot || (includeCreator && !deviceConnected) || !validStep || completed) return;
     setBusy(true); setError(null); setProgress('Saving challenge…');
     setCompleted(false);
     idempotencyKey.current ||= crypto.randomUUID();
@@ -119,10 +121,15 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
         return;
       }
       const created = await createChallenge({
-        name: challengeName.trim(), habit, deviceEventId: candidateDeviceEventId || undefined, startDate, durationDays,
-        timezone, inviteeIds: invitees.map((person) => person.uid), idempotencyKey: idempotencyKey.current,
+        name: challengeName.trim(), habit, includeCreator, deviceEventId: includeCreator ? candidateDeviceEventId || undefined : undefined,
+        startDate, durationDays, timezone, inviteeIds: invitees.map((person) => person.uid), idempotencyKey: idempotencyKey.current,
       });
       idempotencyKey.current = null;
+      if (!includeCreator) {
+        setCompleted(true);
+        setProgress('Challenge created and invites sent. You are hosting but not participating.');
+        return;
+      }
       if (!created.deviceEventId) throw new Error('The challenge was saved without a device event ID. Contact support before retrying.');
       setAssignedDeviceEventId(created.deviceEventId);
       const state: RetryState = { challengeId: created.challengeId, deviceEventId: created.deviceEventId, habit: { ...snapshot, habitId: created.deviceEventId }, startDate, endDate: created.endDate };
@@ -159,6 +166,7 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
     setChallengeName('My challenge');
     setStartDate('');
     setDurationDays(21);
+    setIncludeCreator(true);
     setInvitees([]);
     setEmail('');
     setRetry(null);
@@ -191,11 +199,23 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
             <ChallengeHabitForm value={habit} onChange={setHabit} />
             <ChallengeConfigForm startDate={startDate} serverToday={serverToday} currentMinuteOfDay={currentMinuteOfDay}
               times={habit.times} activeDays={habit.days} durationDays={durationDays} onStartDate={setStartDate} onDuration={setDurationDays} />
-            {eventIdError && <div className="challenge-device-gate" role="alert">{eventIdError}<button type="button" onClick={() => setEventIdRequest((request) => request + 1)}>Retry</button></div>}
           </section>}
           {step === 2 && <section ref={stepPanelRef} className="challenge-modal challenge-setup-controls" aria-labelledby="challenge-step-title">
             <h3 id="challenge-step-title" className="challenge-step-title">Invite your people</h3>
             <p className="challenge-muted">Find friends by email. They’ll need a bound Frost device to join.</p>
+            <fieldset className="challenge-participation-choice">
+              <legend>Your participation</legend>
+              <label>
+                <input type="radio" name="challenge-participation" checked={includeCreator}
+                  onChange={() => setIncludeCreator(true)} />
+                <span><strong>Include me</strong><small>You’ll join the challenge, sync it to your device, and appear on the leaderboard.</small></span>
+              </label>
+              <label>
+                <input type="radio" name="challenge-participation" checked={!includeCreator}
+                  onChange={() => setIncludeCreator(false)} />
+                <span><strong>Exclude me</strong><small>You’ll host and see the leaderboard, but won’t participate or sync the challenge to your device.</small></span>
+              </label>
+            </fieldset>
             <FriendSearch currentUid={user.uid} query={email} selected={invitees} onQuery={setEmail} onSelected={setInvitees} />
           </section>}
           {step === 3 && <section ref={stepPanelRef} className="challenge-modal challenge-setup-controls" aria-labelledby="challenge-step-title">
@@ -205,12 +225,17 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
               <p>Cue times · {snapshot ? formatChallengeCueTimes(snapshot.times) : 'No cue times set'} · {snapshot?.days.length ? snapshot.days.join(', ') : 'every day'}</p>
               <p>{formatChallengeDate(startDate)} to {formatChallengeDate(endDate)} · {durationDays} scheduled days</p>
               <p>Inviting {invitees.map((person) => person.name).join(', ')}</p>
-              <DeviceGate connected={deviceConnected} />
-              <ChallengeJsonActions
-                deviceJson={deviceJson}
-                pendingMessage={eventIdLoading ? 'Preparing the challenge device event…' : eventIdError || 'The device event ID is not available yet.'}
-                fileName={`frost-challenge-${deviceEventId || 'pending'}`}
-              />
+              <p>{includeCreator ? 'You are participating and your device will sync this challenge.' : 'You are hosting only; your device will not sync and you will not appear in the leaderboard.'}</p>
+              {includeCreator && <>
+                <DeviceGate connected={deviceConnected} />
+                {eventIdLoading && <p role="status">Preparing the challenge device event…</p>}
+                {eventIdError && <div className="challenge-device-gate" role="alert">{eventIdError}<button type="button" onClick={() => setEventIdRequest((request) => request + 1)}>Retry</button></div>}
+                <ChallengeJsonActions
+                  deviceJson={deviceJson}
+                  pendingMessage="The device event ID is not available yet."
+                  fileName={`frost-challenge-${deviceEventId || 'pending'}`}
+                />
+              </>}
             </div>
           </section>}
           {error && <p className="challenge-action-error" role="alert">{error}</p>}
@@ -219,7 +244,7 @@ export default function NewChallengeModal({ user, deviceConnected, bridge }: Pro
             {completed ? <div className="challenge-send-area"><p role="status">{progress}</p><button type="button" className="challenge-primary" onClick={startAnother}>Create another challenge</button></div>
               : retry ? <SendChallengeButton connected={deviceConnected} disabled={busy} progress={progress} onSend={send} onRetry={() => void retrySync()} />
               : step < 3 ? <button type="button" className="challenge-primary" disabled={!validStep || busy} onClick={() => setStep((value) => value + 1)}>{step === 1 ? 'Choose friends' : 'Review challenge'}</button>
-                : <SendChallengeButton connected={deviceConnected} disabled={!validStep || busy} progress={progress} onSend={() => void send()} />}
+                : <SendChallengeButton connected={!includeCreator || deviceConnected} disabled={!validStep || busy} progress={progress} onSend={() => void send()} />}
           </footer>
         </div>
       </div>

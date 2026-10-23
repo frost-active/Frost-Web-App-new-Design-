@@ -18,7 +18,7 @@ export default function FriendSearch({ currentUid, query: email, selected, onQue
       <p className="challenge-muted">Only exact email matches with a bound Frost device appear. Up to {MAX_INVITEES} friends.</p>
       {loading && <p role="status">Searching…</p>}
       {error && <p role="alert">{error}</p>}
-      {!loading && !error && email.includes('@') && !users.length && <p className="challenge-muted">No eligible Frost account found for that email.</p>}
+      {!loading && !error && email.includes('@') && !users.length && <p className="challenge-no-eligible-account">No eligible Frost account found for that email.</p>}
       <ul className="challenge-friend-results" aria-label="Matching friends">
         {users.map((user) => <li key={user.uid}>
           <label>

@@ -7,6 +7,7 @@ const DURATION_PRESETS = new Set([7, 14, 21, 30]);
 function isISODate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
+  if (year < 1) return false;
   const date = new Date(0);
   date.setUTCFullYear(year, month - 1, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
@@ -46,7 +47,9 @@ function computeEndDate(startDate, durationDays, activeDays = []) {
     if (selectedDays.has(week[end.getUTCDay()])) scheduledDays += 1;
     if (scheduledDays < durationDays) end.setUTCDate(end.getUTCDate() + 1);
   }
-  return end.toISOString().slice(0, 10);
+  const endDate = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`;
+  if (!isISODate(endDate)) throw new Error('Challenge end date must be on or before December 31, 9999.');
+  return endDate;
 }
 
 function allocateCustomId(events, reservedIds = []) {
@@ -88,7 +91,8 @@ function canAcceptChallenge(challenge, today, currentMinuteOfDay) {
 function lifecycleAction(challenge, today, acceptedCount, currentMinuteOfDay = 1440) {
   if (challenge.status === 'pending' && today >= challenge.startDate) {
     if (today === challenge.startDate && currentMinuteOfDay < firstCueMinute(challenge)) return null;
-    return acceptedCount > 1 ? 'activate' : 'cancel';
+    const requiredAcceptedCount = challenge.creatorParticipates === false ? 1 : 2;
+    return acceptedCount >= requiredAcceptedCount ? 'activate' : 'cancel';
   }
   if (challenge.status === 'active' && today > challenge.endDate) return 'complete';
   return null;

@@ -162,12 +162,18 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   const data = request.data || {};
   const idempotencyKey = cleanString(data.idempotencyKey, 'Idempotency key', 100);
   const challengeName = cleanString(data.name, 'Challenge name', 60);
+  const includeCreator = data.includeCreator === undefined ? true : data.includeCreator;
+  if (typeof includeCreator !== 'boolean') throw new HttpsError('invalid-argument', 'Choose whether you will participate in the challenge.');
   const challengeId = createHash('sha256').update(`${uid}:${idempotencyKey}`).digest('hex').slice(0, 32);
   const challengeRef = db.doc(`challenges/${challengeId}`);
   const existingChallenge = await challengeRef.get();
   if (existingChallenge.exists) {
+    const existingData = existingChallenge.data();
+    if ((existingData.creatorParticipates !== false) !== includeCreator) {
+      throw new HttpsError('failed-precondition', 'This challenge was already created with a different participation choice. Start a new challenge to change it.');
+    }
     const participant = await challengeRef.collection('participants').doc(uid).get();
-    return { challengeId, endDate: existingChallenge.data().endDate, deviceEventId: participant.data()?.deviceEventId || null };
+    return { challengeId, endDate: existingData.endDate, deviceEventId: participant.data()?.deviceEventId || null };
   }
   const startDate = cleanString(data.startDate, 'Start date', 10);
   const durationDays = Number(data.durationDays);
@@ -187,18 +193,26 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   if (startDate === serverToday && habitDraft.times.some(({ h, m }) => h * 60 + m <= minuteInTimezone(serverNow, timezone))) {
     throw new HttpsError('failed-precondition', `For a challenge starting today, choose cue times later than the current time in ${timezone}.`);
   }
-  const endDate = computeEndDate(startDate, durationDays, habitDraft.days);
+  let endDate;
+  try { endDate = computeEndDate(startDate, durationDays, habitDraft.days); }
+  catch (cause) {
+    if (cause instanceof Error && cause.message === 'Challenge end date must be on or before December 31, 9999.') {
+      throw new HttpsError('invalid-argument', cause.message);
+    }
+    throw cause;
+  }
   const invitedUsers = await loadInvitedUsers(data.inviteeIds, uid);
   const creator = await getAuth().getUser(uid);
-  const { macId, macAddress } = await getBoundDevice(uid);
-  const configRef = db.doc(`users/${uid}/devices/${macId}/configs/current`);
+  const creatorDevice = includeCreator ? await getBoundDevice(uid) : null;
+  const configRef = creatorDevice ? db.doc(`users/${uid}/devices/${creatorDevice.macId}/configs/current`) : null;
   const creatorParticipantRef = challengeRef.collection('participants').doc(uid);
-  let deviceEventId = '';
+  let deviceEventId = null;
   const participantIds = [uid, ...invitedUsers.map((user) => user.uid)];
   const challenge = {
     name: challengeName,
     creatorId: uid,
     creatorName: creator.displayName || creator.email || 'Frost user',
+    creatorParticipates: includeCreator,
     habit: null,
     sourceHabitId: null,
     startDate,
@@ -207,7 +221,7 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
     timezone,
     status: 'pending',
     participantIds,
-    acceptedIds: [uid],
+    acceptedIds: includeCreator ? [uid] : [],
     idempotencyKey,
     createdAt: FieldValue.serverTimestamp(),
   };
@@ -215,29 +229,38 @@ exports.createChallenge = onCall({ region: REGION }, async (request) => {
   await db.runTransaction(async (transaction) => {
     const existing = await transaction.get(challengeRef);
     if (existing.exists) {
+      if ((existing.data().creatorParticipates !== false) !== includeCreator) {
+        throw new HttpsError('failed-precondition', 'This challenge was already created with a different participation choice. Start a new challenge to change it.');
+      }
       const participant = await transaction.get(creatorParticipantRef);
-      deviceEventId = participant.data()?.deviceEventId || '';
+      deviceEventId = participant.data()?.deviceEventId || null;
       return;
     }
-    const [latestConfig, existingChallengeHabits] = await Promise.all([
-      transaction.get(configRef),
-      transaction.get(db.collection(`users/${uid}/challengeHabits`)),
-    ]);
-    const currentConfig = challengeConfig(latestConfig);
-    const habitEvents = currentConfig.reminders.custom.events;
-    deviceEventId = chooseCustomId(habitEvents, existingChallengeHabits.docs.map((document) => document.id), data.deviceEventId);
-    const habit = { ...habitDraft, habitId: deviceEventId };
-    challenge.habit = habit;
-    const linkedRef = db.doc(`users/${uid}/challengeHabits/${deviceEventId}`);
-    const nextConfig = appendChallengeHabit(currentConfig, challengeDeviceEvent({ deviceEventId }, { habit, startDate, endDate }), challengeId);
+    let habit;
+    if (includeCreator) {
+      const [latestConfig, existingChallengeHabits] = await Promise.all([
+        transaction.get(configRef),
+        transaction.get(db.collection(`users/${uid}/challengeHabits`)),
+      ]);
+      const currentConfig = challengeConfig(latestConfig);
+      const habitEvents = currentConfig.reminders.custom.events;
+      deviceEventId = chooseCustomId(habitEvents, existingChallengeHabits.docs.map((document) => document.id), data.deviceEventId);
+      habit = { ...habitDraft, habitId: deviceEventId };
+      const linkedRef = db.doc(`users/${uid}/challengeHabits/${deviceEventId}`);
+      const nextConfig = appendChallengeHabit(currentConfig, challengeDeviceEvent({ deviceEventId }, { habit, startDate, endDate }), challengeId);
+      challenge.habit = habit;
+      transaction.create(creatorParticipantRef, {
+        uid, email: creator.email || '', displayName: creator.displayName || creator.email || 'Frost user', photoURL: creator.photoURL || null,
+        role: 'creator', status: 'accepted', habitId: deviceEventId, deviceEventId, deviceMacId: creatorDevice.macId,
+        deviceSyncStatus: 'pending', invitedAt: FieldValue.serverTimestamp(), respondedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(linkedRef, { challengeId, habitId: deviceEventId, deviceEventId, status: 'pending', role: 'creator' });
+      transaction.set(configRef, { macAddress: creatorDevice.macAddress, config: nextConfig }, { merge: true });
+    } else {
+      habit = { ...habitDraft, habitId: '' };
+      challenge.habit = habit;
+    }
     transaction.create(challengeRef, challenge);
-    transaction.create(creatorParticipantRef, {
-      uid, email: creator.email || '', displayName: creator.displayName || creator.email || 'Frost user', photoURL: creator.photoURL || null,
-      role: 'creator', status: 'accepted', habitId: deviceEventId, deviceEventId, deviceMacId: macId,
-      deviceSyncStatus: 'pending', invitedAt: FieldValue.serverTimestamp(), respondedAt: FieldValue.serverTimestamp(),
-    });
-    transaction.create(linkedRef, { challengeId, habitId: deviceEventId, deviceEventId, status: 'pending', role: 'creator' });
-    transaction.set(configRef, { macAddress, config: nextConfig }, { merge: true });
     invitedUsers.forEach((user) => {
       transaction.create(challengeRef.collection('participants').doc(user.uid), {
         ...user, role: 'invitee', status: 'invited', habitId: '', deviceSyncStatus: 'pending', invitedAt: FieldValue.serverTimestamp(),

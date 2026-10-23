@@ -39,6 +39,7 @@ export function isChallengeableHabit(value: unknown): value is ChallengeableHabi
 export function isValidISODate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
+  if (year < 1) return false;
   const parsed = new Date(0);
   parsed.setUTCFullYear(year, month - 1, day);
   return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
@@ -60,7 +61,9 @@ export function computeEndDate(startDate: string, durationDays: number, activeDa
     if (selectedDays.has(week[end.getUTCDay()])) scheduledDays += 1;
     if (scheduledDays < durationDays) end.setUTCDate(end.getUTCDate() + 1);
   }
-  return `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`;
+  const endDate = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')}`;
+  if (!isValidISODate(endDate)) throw new Error('Challenge end date must be on or before December 31, 9999.');
+  return endDate;
 }
 
 export function isValidInviteeCount(count: number): boolean {
@@ -81,7 +84,7 @@ export function getChallengeScheduleError(
   times: readonly { h: number; m: number }[],
   currentMinuteOfDay: number | null,
 ): string | null {
-  if (!isValidISODate(startDate)) return 'Choose a start date from the calendar.';
+  if (!isValidISODate(startDate)) return 'Enter a valid start date with a four-digit year from 0001 to 9999.';
   if (!isValidISODate(serverToday) || startDate < serverToday) return 'Choose today or a future date.';
   if (startDate === serverToday && currentMinuteOfDay !== null
     && times.some(({ h, m }) => h * 60 + m <= currentMinuteOfDay)) {

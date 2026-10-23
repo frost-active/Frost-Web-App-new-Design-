@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { allocateCustomId, calculateStanding, canAcceptChallenge, chooseCustomId, computeEndDate, dateInTimezone, isChallengeableEvent, lifecycleAction, meetsLead, minuteInTimezone, rankStandings } = require('./domain');
+const { allocateCustomId, calculateStanding, canAcceptChallenge, chooseCustomId, computeEndDate, dateInTimezone, isChallengeableEvent, isISODate, lifecycleAction, meetsLead, minuteInTimezone, rankStandings } = require('./domain');
 
 test('allocates a custom ID beyond device events and reserved challenge habit IDs', () => {
   assert.equal(allocateCustomId([{ id: 'custom_001' }], ['custom_002']), 'custom_003');
@@ -20,6 +20,13 @@ test('computes inclusive end dates and server-local timezone dates', () => {
   assert.equal(meetsLead('2026-10-16', '2026-10-15'), true);
   assert.equal(meetsLead('2026-10-15', '2026-10-15'), true);
   assert.equal(meetsLead('2026-10-14', '2026-10-15'), false);
+});
+
+test('validates date years and rejects challenge end dates beyond four-digit years', () => {
+  assert.equal(isISODate('0001-01-01'), true);
+  assert.equal(isISODate('0000-01-01'), false);
+  assert.equal(isISODate('10000-01-01'), false);
+  assert.throws(() => computeEndDate('9999-12-31', 2), /on or before December 31, 9999/);
 });
 
 test('rejects predefined and already linked habit events', () => {
@@ -46,11 +53,15 @@ test('recomputes in-range check-ins, resets a missed current streak, and shares 
   assert.deepEqual(ranked.map((row) => row.rank), [1, 1]);
 });
 
-test('lifecycle activates, cancels, completes, and ignores idempotent re-runs', () => {
+test('lifecycle preserves legacy participant thresholds and supports host-only challenges', () => {
   const pending = { status: 'pending', startDate: '2026-10-15', endDate: '2026-11-04' };
   assert.equal(lifecycleAction(pending, '2026-10-14', 2), null);
   assert.equal(lifecycleAction(pending, '2026-10-15', 2), 'activate');
   assert.equal(lifecycleAction(pending, '2026-10-15', 1), 'cancel');
+  assert.equal(lifecycleAction({ ...pending, creatorParticipates: true }, '2026-10-15', 1), 'cancel');
+  assert.equal(lifecycleAction({ ...pending, creatorParticipates: true }, '2026-10-15', 2), 'activate');
+  assert.equal(lifecycleAction({ ...pending, creatorParticipates: false }, '2026-10-15', 0), 'cancel');
+  assert.equal(lifecycleAction({ ...pending, creatorParticipates: false }, '2026-10-15', 1), 'activate');
   const active = { ...pending, status: 'active' };
   assert.equal(lifecycleAction(active, '2026-11-04', 2), null);
   assert.equal(lifecycleAction(active, '2026-11-05', 2), 'complete');

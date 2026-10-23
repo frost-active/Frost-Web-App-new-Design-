@@ -63,6 +63,7 @@ test('challenge date form uses the server minimum and computes inclusive end dat
   }));
 
   assert.equal(screen.getByLabelText('Start date').getAttribute('min'), '2026-10-15');
+  assert.equal(screen.getByLabelText('Start date').getAttribute('max'), '9999-12-31');
   assert.equal(screen.getByLabelText('Start date').hasAttribute('required'), true);
   assert.equal(screen.getByLabelText('Streak length').getAttribute('min'), '1');
   assert.match(view.container.textContent, /Nov 4, 2026/);

@@ -23,9 +23,17 @@ test('computes an inclusive challenge end date', () => {
   assert.equal(computeEndDate('2026-10-17', 1, ['mon', 'tue', 'wed', 'thu', 'fri']), '2026-10-19');
 });
 
-test('requires a calendar date, permits today, and rejects cue times already passed today', () => {
+test('requires a four-digit calendar year between 0001 and 9999', () => {
+  assert.equal(getChallengeScheduleError('10000-10-16', '2026-10-16', [{ h: 23, m: 0 }], 600),
+    'Enter a valid start date with a four-digit year from 0001 to 9999.');
+  assert.equal(getChallengeScheduleError('0000-10-16', '2026-10-16', [{ h: 23, m: 0 }], 600),
+    'Enter a valid start date with a four-digit year from 0001 to 9999.');
+  assert.throws(() => computeEndDate('9999-12-31', 2), /on or before December 31, 9999/);
+});
+
+test('permits today and rejects cue times already passed today', () => {
   const today = '2026-10-16';
-  assert.equal(getChallengeScheduleError('', today, [{ h: 23, m: 0 }], 600), 'Choose a start date from the calendar.');
+  assert.equal(getChallengeScheduleError('', today, [{ h: 23, m: 0 }], 600), 'Enter a valid start date with a four-digit year from 0001 to 9999.');
   assert.equal(getChallengeScheduleError(today, today, [{ h: 9, m: 59 }], 600), 'For a challenge starting today, choose a cue time later than the current time.');
   assert.equal(getChallengeScheduleError(today, today, [{ h: 10, m: 1 }], 600), null);
   assert.equal(getChallengeScheduleError('2026-10-17', today, [{ h: 8, m: 0 }], 600), null);

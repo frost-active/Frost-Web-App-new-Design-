@@ -23,6 +23,7 @@ export type Challenge = {
   name?: string;
   creatorId: string;
   creatorName: string;
+  creatorParticipates?: boolean;
   habit: ChallengeHabitSnapshot;
   startDate: string;
   endDate: string;
