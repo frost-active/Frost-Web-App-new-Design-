@@ -148,8 +148,8 @@
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-dialcard{background:var(--panel);border-radius:20px;padding:10px 10px 4px;position:relative}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) svg.cfg-dial{display:block;width:100%;height:auto;touch-action:pan-y}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-tickline{stroke:rgba(230,241,248,.16)}
-:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ticknum{fill:rgba(230,241,248,.28);font:500 10.5px "DM Sans";text-anchor:middle}
-:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ticknum.cfg-major{fill:rgba(230,241,248,.5);font:700 13px "DM Sans"}
+:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-empty-dial, .challenge-card-dial) .cfg-ticknum{fill:rgba(230,241,248,.28);font:500 10.5px "DM Sans";text-anchor:middle}
+:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-empty-dial, .challenge-card-dial) .cfg-ticknum.cfg-major{fill:rgba(230,241,248,.5);font:700 13px "DM Sans"}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-quiet{fill:rgba(212,162,76,.07)}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-quietline{stroke:rgba(212,162,76,.3);stroke-width:1.5;stroke-dasharray:3 5}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-cattrack{fill:none;stroke:rgba(230,241,248,.05)}
@@ -161,9 +161,9 @@
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-seg.cfg-dim{opacity:.34}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-seg.cfg-hit{cursor:pointer}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-nowdot{fill:#fff;stroke:rgba(4,24,40,.55);stroke-width:1.5}
-:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ctrName{fill:var(--ink);font:700 15px Syne;text-anchor:middle}
+:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-empty-dial, .challenge-card-dial) .cfg-ctrName{fill:var(--ink);font:700 15px Syne;text-anchor:middle}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ctrBig{fill:var(--ink);font:800 46px Syne;text-anchor:middle}
-:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ctrSub{fill:var(--muted);font:500 10px "DM Sans";letter-spacing:.12em;text-anchor:middle}
+:is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-empty-dial, .challenge-card-dial) .cfg-ctrSub{fill:var(--muted);font:500 10px "DM Sans";letter-spacing:.12em;text-anchor:middle}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-ctrStreak{fill:var(--sand);font:800 15px Syne;text-anchor:middle}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-dosetrk{fill:none;stroke:rgba(230,241,248,.1);stroke-width:7}
 :is(#page-configure, .challenge-modal, .challenge-workspace, .challenge-card-dial) .cfg-dosearc{fill:none;stroke:var(--c);stroke-width:7;stroke-linecap:round}

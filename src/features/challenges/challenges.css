@@ -38,6 +38,13 @@
 .challenge-selected-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 .challenge-selected-chips button{padding:6px 9px;border:1px solid var(--faint);border-radius:99px;background:var(--panel2);color:var(--ink);font-size:12px}
 .challenge-review{display:grid;gap:10px;font-size:13px;line-height:1.5}
+.challenge-batch-review>p:first-child{color:var(--muted)}
+.challenge-review-item{display:grid;gap:4px;padding:12px;border:1px solid var(--faint);border-radius:9px;background:var(--panel2)}
+.challenge-review-item>strong{font:700 13px Syne,sans-serif}
+.challenge-review-item>p{margin:0;color:var(--muted)}
+.challenge-review-item .challenge-review-ready{color:var(--mint)}
+.challenge-review-item .challenge-review-pending{color:#f3c776}
+.challenge-batch-notice{margin:8px 0 16px;padding:12px 14px;border:1px solid rgba(93,202,165,.35);border-radius:9px;background:rgba(93,202,165,.08);color:var(--mint);font-size:13px;line-height:1.5}
 .challenge-json-actions{display:grid;gap:8px;margin-top:4px}
 .challenge-json-actions details{min-width:0;border:1px solid var(--faint);border-radius:8px;background:var(--panel2)}
 .challenge-json-actions summary{padding:10px 12px;color:var(--ink);font-size:12px;font-weight:600;cursor:pointer}
@@ -101,6 +108,35 @@
 .challenge-podium-place span,.challenge-podium-place small{color:var(--muted);font-size:10px}
 .challenge-podium-place strong{overflow-wrap:anywhere;font-size:12px}
 .challenge-workspace{margin:8px 0 28px}
+.challenge-workspace[hidden]{display:none}
+.challenge-draft-area{min-width:0}
+.challenge-empty-workspace{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start;margin:8px 0 28px}
+.challenge-empty-dial{min-width:0;background:var(--panel);border-radius:20px;padding:10px 10px 4px}
+.challenge-empty-dial .cfg-challenge-dial{max-width:720px}
+.challenge-draft-rail{padding:18px;border:1px solid var(--faint);border-radius:14px;background:var(--panel);color:var(--ink)}
+.challenge-draft-rail>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.challenge-draft-rail h2{margin:0 0 4px;font:700 17px Syne,sans-serif}
+.challenge-draft-rail header p,.challenge-draft-empty{margin:0;color:var(--muted);font-size:12px;line-height:1.5}
+.challenge-draft-empty{margin-bottom:14px}
+.challenge-draft-list{display:grid;gap:6px;margin:0 0 12px;padding:0;list-style:none}
+.challenge-draft-row{display:flex;align-items:stretch;gap:6px}
+.challenge-draft-option{display:grid;flex:1;min-width:0;width:auto;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:49px;padding:8px 10px;border:1px solid var(--faint);border-radius:8px;background:var(--panel2);color:var(--ink);text-align:left;cursor:pointer}
+.challenge-draft-option:hover{border-color:rgba(93,202,165,.65)}
+.challenge-draft-option:focus-visible,.challenge-draft-remove:focus-visible,.challenge-add-button:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+.challenge-draft-option:disabled,.challenge-draft-remove:disabled,.challenge-add-button:disabled{opacity:.55;cursor:not-allowed}
+.challenge-draft-option.is-selected{border-color:var(--mint);background:color-mix(in srgb,var(--panel2) 90%,var(--mint) 10%)}
+.challenge-draft-remove{flex:none;align-self:center;min-height:36px;padding:6px 9px;border:1px solid rgba(255,129,119,.35);border-radius:7px;background:transparent;color:#ff938a;font-size:11px}
+.challenge-draft-remove:hover:not(:disabled){border-color:#ff8177;background:rgba(255,129,119,.08)}
+.challenge-draft-index{color:var(--muted);font:700 10px Syne,sans-serif;font-variant-numeric:tabular-nums}
+.challenge-draft-label{overflow:hidden;font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}
+.challenge-draft-status{color:var(--muted);font-size:10px}
+.challenge-add-button{width:100%;min-height:40px;padding:8px 12px;border:1px dashed rgba(93,202,165,.55);border-radius:8px;background:transparent;color:var(--mint);font:700 12px Syne,sans-serif;text-align:center;cursor:pointer}
+.challenge-add-button:hover{border-style:solid;background:color-mix(in srgb,var(--panel) 88%,var(--mint) 12%)}
+.challenge-setup-content{display:flex;min-width:0;flex-direction:column;gap:12px}
+.challenge-setup-content .challenge-setup-controls{margin-top:0}
+.challenge-draft-rail+ .challenge-setup-controls{margin-top:0}
+.challenge-dial-empty .cfg-cattrack{stroke:rgba(230,241,248,.12)}
+.challenge-dial-empty .cfg-cattrack.cfg-selectedtrack{stroke:rgba(230,241,248,.12);stroke-opacity:1}
 .challenge-setup-heading{margin-bottom:16px}
 .challenge-setup-heading>div{display:grid;gap:5px}
 .challenge-setup-heading p{color:var(--mint);font:700 10px Syne,sans-serif;letter-spacing:.1em}
@@ -109,16 +145,18 @@
 .challenge-setup-grid{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
 .challenge-setup-dial{position:sticky;top:16px}
 .challenge-workspace .challenge-setup-dial.cfg-dialcard{background:var(--panel);border-radius:20px;padding:10px 10px 4px}
-.challenge-dial{display:block;width:100%;margin:0 auto}
+:is(#page-configure, .challenge-workspace, .challenge-card-dial) .challenge-dial .challenge-nowdot{fill:#fff;stroke:rgba(4,24,40,.55);stroke-width:1.5}
+.cfg-challenge-dial{display:block;width:100%;margin:0 auto}
 .challenge-dial-caption{max-width:300px;margin:-8px auto 0;text-align:center}
 .challenge-modal.challenge-setup-controls{width:auto;height:auto;max-height:none;display:grid;gap:18px;overflow:visible;padding:16px;border:0;border-radius:16px;background:var(--panel);box-shadow:none;color:var(--ink);scroll-margin-block-start:16px}
 .challenge-setup-controls .challenge-config-form{margin-top:0}
+.challenge-disabled-fields{width:100%;min-width:0;margin:0;padding:0;border:0}
 .challenge-name-field{display:grid;gap:7px;color:var(--ink);font-size:13px;font-weight:700}
 .challenge-name-field input,.challenge-rename-form input{width:100%;min-height:42px;padding:9px 11px;border:1px solid var(--faint);border-radius:7px;background:var(--panel2);color:var(--ink);font:500 14px "DM Sans",sans-serif}
 .challenge-name-field small{color:var(--muted);font-size:11px;font-weight:400;line-height:1.4}
 .challenge-step-title{font:700 16px Syne,sans-serif}
 .challenge-participation-choice{display:grid;gap:8px;margin:0;padding:0;border:0}
-.challenge-participation-choice legend{margin-bottom:8px;color:var(--ink);font:700 12px Syne,sans-serif}
+.challenge-participation-choice legend,.challenge-participation-legend{margin:0 0 8px;color:var(--ink);font:700 12px Syne,sans-serif}
 .challenge-participation-choice label{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--faint);border-radius:9px;background:var(--panel2);cursor:pointer}
 .challenge-participation-choice label:has(input:checked){border-color:var(--mint);background:color-mix(in srgb,var(--panel2) 90%,var(--mint) 10%)}
 .challenge-participation-choice input{flex:none;margin:3px 0 0;accent-color:var(--mint)}
@@ -144,7 +182,7 @@
 .challenge-rename-form button{min-height:36px;padding:7px 10px;font-size:11px}
 .challenge-card-dial{width:100%;margin:0 auto}
 @media(max-width:1000px){
-  .challenge-setup-grid,.challenge-active-layout,.challenge-invite-layout{grid-template-columns:minmax(0,1fr)}
+  .challenge-empty-workspace,.challenge-setup-grid,.challenge-active-layout,.challenge-invite-layout{grid-template-columns:minmax(0,1fr)}
   .challenge-setup-dial,.challenge-invite-dial,.challenge-invite-details,.challenge-active-layout>header{grid-column:1;grid-row:auto}
   .challenge-active-layout>header{display:flex}
   .challenge-active-layout .challenge-schedule-summary{text-align:right;margin-top:0}
@@ -159,6 +197,8 @@
   .challenge-streak-count{grid-column:3 / -1;text-align:left;padding:0 0 7px}
   .challenge-podium{grid-template-columns:1fr}
   .challenge-workspace{padding:0}
+  .challenge-empty-workspace{gap:12px}
+  .challenge-empty-dial{padding:10px 8px 4px;border-radius:20px}
   .challenge-setup-grid{grid-template-columns:minmax(0,1fr);gap:12px}
   .challenge-setup-dial{position:static}
   .challenge-workspace .challenge-setup-dial.cfg-dialcard{padding:10px 8px 4px;border-radius:20px}

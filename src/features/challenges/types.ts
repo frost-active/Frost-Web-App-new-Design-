@@ -95,3 +95,18 @@ export type ChallengeDeviceJson = {
   };
   audio: Record<string, never>;
 };
+
+export type ChallengeDraftSubmission = {
+  draftId: string;
+  name: string;
+  habit: ChallengeHabitDraft;
+  startDate: string;
+  endDate: string;
+  durationDays: number;
+  timezone: string;
+  invitees: Array<{ uid: string; name: string }>;
+  includeCreator: boolean;
+  step: number;
+  ready: boolean;
+  deviceEventId: string | null;
+};

@@ -8,8 +8,8 @@ export type BuildChallengeDeviceJsonInput = {
   deviceEventId: string;
 };
 
-export function buildChallengeDeviceJson(input: BuildChallengeDeviceJsonInput): ChallengeDeviceJson {
-  const challengeEvent: DeviceCustomEvent = {
+function buildChallengeDeviceEvent(input: BuildChallengeDeviceJsonInput): DeviceCustomEvent {
+  return {
     id: input.deviceEventId,
     label: input.habit.label,
     enabled: true,
@@ -25,6 +25,14 @@ export function buildChallengeDeviceJson(input: BuildChallengeDeviceJsonInput): 
     text_align: input.habit.text_align,
     text_width: input.habit.text_width,
   };
+}
+
+export function buildChallengeDeviceJsonForChallenges(inputs: BuildChallengeDeviceJsonInput[]): ChallengeDeviceJson {
+  if (inputs.length === 0) throw new Error('At least one challenge is required to build device JSON.');
+  const eventIds = inputs.map(({ deviceEventId }) => deviceEventId);
+  if (eventIds.some((id) => !id.trim()) || new Set(eventIds).size !== eventIds.length) {
+    throw new Error('Each challenge must have a unique device event ID.');
+  }
 
   return {
     _meta: { schema_ver: 6, device: 'FROST' },
@@ -33,11 +41,15 @@ export function buildChallengeDeviceJson(input: BuildChallengeDeviceJsonInput): 
         enabled: true,
         require_ack: true,
         display_ms: 60000,
-        events: [challengeEvent],
+        events: inputs.map(buildChallengeDeviceEvent),
       },
     },
     audio: {},
   };
+}
+
+export function buildChallengeDeviceJson(input: BuildChallengeDeviceJsonInput): ChallengeDeviceJson {
+  return buildChallengeDeviceJsonForChallenges([input]);
 }
 
 export async function syncChallengeToDevice(

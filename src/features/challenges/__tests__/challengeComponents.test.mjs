@@ -18,8 +18,10 @@ const { default: ChallengeConfigForm } = await import('../components/ChallengeCo
 const { default: ChallengeHabitForm } = await import('../components/ChallengeHabitForm.tsx');
 const { default: ChallengeDial } = await import('../components/ChallengeDial.tsx');
 const { default: ChallengeJsonActions } = await import('../components/ChallengeJsonActions.tsx');
+const { default: ChallengeDraftRail } = await import('../components/ChallengeDraftRail.tsx');
 const { default: InviteCard } = await import('../components/InviteCard.tsx');
 const { scrollToChangedChallengeStep } = await import('../services/challengeStepScroll.ts');
+const { ptH, R_TICK } = await import('../../../components/configure/format.ts');
 
 test('challenge step scrolling only runs on changes and respects reduced motion', () => {
   const calls = [];
@@ -36,6 +38,83 @@ test('challenge step scrolling only runs on changes and respects reduced motion'
 
   scrollToChangedChallengeStep(2, 3, null, false);
   assert.equal(calls.length, 2);
+});
+
+test('challenge draft rail selects independent named drafts and adds another draft', () => {
+  const actions = [];
+  render(createElement(ChallengeDraftRail, {
+    drafts: [{ id: 'draft-a', name: 'Morning focus' }, { id: 'draft-b', name: 'Evening wind-down' }],
+    selectedId: 'draft-a',
+    onSelect: (id) => actions.push(['select', id]),
+    onAdd: () => actions.push(['add']),
+    onRemove: (id) => actions.push(['remove', id]),
+  }));
+
+  assert.equal(screen.getByRole('heading', { name: 'Your Challenges' }) !== null, true);
+  assert.equal(screen.getByRole('button', { name: /Morning focus.*Draft/ }).getAttribute('aria-pressed'), 'true');
+  assert.equal(screen.getByRole('button', { name: /Evening wind-down.*Draft/ }).getAttribute('aria-pressed'), 'false');
+  fireEvent.click(screen.getByRole('button', { name: /Evening wind-down.*Draft/ }));
+  fireEvent.click(screen.getByRole('button', { name: '+ Add challenge' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Evening wind-down draft' }));
+  assert.deepEqual(actions, [['select', 'draft-b'], ['add'], ['remove', 'draft-b']]);
+  assert.equal(screen.queryByText(/Hydration|Medication|Walk|Meditation/), null);
+  cleanup();
+});
+
+test('empty challenge dial shows the Configure-style empty face without schedule tracks', () => {
+  const view = render(createElement(ChallengeDial, {
+    name: '', habitLabel: '', cueTimes: [{ h: 9, m: 0 }], startDate: '', timezone: 'UTC', activeDays: [], durationDays: 0, emptyState: true,
+  }));
+
+  assert.ok(screen.getByRole('img', { name: 'No Challenges Yet. ADD ONE ON THE RIGHT' }));
+  assert.equal(view.container.querySelector('.cfg-cattrack'), null);
+  assert.equal(view.container.querySelector('.cfg-dosetrk'), null);
+  assert.equal(view.container.querySelectorAll('.cfg-seg').length, 0);
+  assert.equal(view.container.querySelectorAll('.cfg-ticknum').length, 12);
+  assert.equal(view.container.querySelectorAll('.cfg-tickline').length, 12);
+  assert.ok(view.container.querySelector('.cfg-nowdot'));
+  assert.equal(view.container.querySelectorAll('.cfg-ctrName')[0].textContent, 'No Challenges Yet');
+  assert.equal(view.container.querySelector('.cfg-ctrSub').textContent, 'ADD ONE ON THE RIGHT');
+  cleanup();
+});
+
+test('challenge live-time marker is positioned using IST regardless of selected timezone', () => {
+  const RealDate = globalThis.Date;
+  const fixedTimestamp = new RealDate('2026-10-23T10:00:00.000Z').getTime();
+  globalThis.Date = class extends RealDate {
+    constructor(...args) {
+      super(...(args.length ? args : [fixedTimestamp]));
+    }
+    static now() { return fixedTimestamp; }
+  };
+  try {
+    const view = render(createElement(ChallengeDial, {
+      name: 'Reading',
+      habitLabel: 'Reading',
+      cueTimes: [{ h: 9, m: 0 }],
+      startDate: '',
+      timezone: 'UTC',
+      activeDays: [],
+      durationDays: 21,
+    }));
+    const marker = view.container.querySelector('.challenge-nowdot');
+    const indiaTime = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new RealDate(fixedTimestamp));
+    const hour = Number(indiaTime.find((part) => part.type === 'hour').value);
+    const minute = Number(indiaTime.find((part) => part.type === 'minute').value);
+    const [expectedX, expectedY] = ptH(hour + minute / 60, R_TICK + 7);
+    assert.ok(Math.abs(Number(marker.getAttribute('cx')) - expectedX) < 0.01);
+    assert.ok(Math.abs(Number(marker.getAttribute('cy')) - expectedY) < 0.01);
+    assert.match(marker.getAttribute('class'), /challenge-nowdot/);
+    assert.equal(marker.style.fill, 'rgb(255, 255, 255)');
+    cleanup();
+  } finally {
+    globalThis.Date = RealDate;
+  }
 });
 
 test('device gate appears only when the Frost device is disconnected', () => {
@@ -161,6 +240,34 @@ test('challenge dial reuses Configure geometry, labeled hour ticks, cue arcs, an
   assert.equal(view.container.querySelector('.cfg-dosetrk') !== null, true);
   assert.match(view.container.querySelector('.cfg-ctrStreak')?.textContent || '', /^Day \d+ of 21$/);
   assert.match(view.container.querySelector('.cfg-ctrSub')?.textContent || '', /OF 21 SCHEDULED DAYS/);
+  cleanup();
+});
+
+test('challenge draft rings select the matching challenge when activated', () => {
+  const selected = [];
+  const view = render(createElement(ChallengeDial, {
+    name: 'Evening wind-down',
+    habitLabel: 'Read',
+    cueTimes: [{ h: 20, m: 0 }],
+    cueDurationMs: 60000,
+    startDate: '',
+    timezone: 'UTC',
+    activeDays: [],
+    durationDays: 21,
+    selectedDraftId: 'draft-b',
+    draftRings: [
+      { id: 'draft-a', name: 'Morning focus', cueTimes: [{ h: 8, m: 0 }], cueDurationMs: 60000 },
+      { id: 'draft-b', name: 'Evening wind-down', cueTimes: [{ h: 20, m: 0 }], cueDurationMs: 60000 },
+    ],
+    onSelectDraft: (id) => selected.push(id),
+  }));
+
+  const rings = view.container.querySelectorAll('.cfg-cattrack');
+  assert.equal(rings.length, 2);
+  assert.equal(screen.getByRole('button', { name: 'Select Morning focus ring' }).getAttribute('tabindex'), '0');
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Select Morning focus ring' }));
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Select Evening wind-down ring' }), { key: 'Enter' });
+  assert.deepEqual(selected, ['draft-a', 'draft-b']);
   cleanup();
 });
 

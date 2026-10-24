@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { computeEndDate, getChallengeScheduleError, isChallengeableHabit, isValidChallengeHabitDraft } from '../services/challengeRules.ts';
-import { buildChallengeDeviceJson, syncChallengeToDevice } from '../services/challengeDeviceSync.ts';
+import { buildChallengeDeviceJson, buildChallengeDeviceJsonForChallenges, syncChallengeToDevice } from '../services/challengeDeviceSync.ts';
 import { calculateStanding, rankStandings } from '../services/ranking.ts';
 import { deriveHabits } from '../../../components/configure/store.ts';
 import { formatChallengeActiveDays, formatChallengeCueTimes, formatChallengeDate } from '../services/challengePresentation.ts';
@@ -69,6 +69,53 @@ test('builds the exact challenge-only device JSON payload', () => {
       }] } },
     audio: {},
   });
+});
+
+test('keeps each challenge draft schedule and device event ID scoped to its own JSON payload', () => {
+  const makeJson = (habitId, label, hour, startDate, deviceEventId) => buildChallengeDeviceJson({
+    habit: {
+      habitId, label, times: [{ h: hour, m: 15 }], days: ['mon', 'wed'], display_ms: 120000,
+      text_x: 120, text_y: 100, text_size: 1, text_color: 65535, text_align: 1, text_width: 180,
+    },
+    startDate, endDate: '2026-11-04', deviceEventId,
+  });
+
+  const morning = makeJson('morning-id', 'Morning focus', 8, '2026-10-15', 'custom_morning');
+  const evening = makeJson('evening-id', 'Evening wind-down', 20, '2026-10-16', 'custom_evening');
+  const morningEvent = morning.reminders.custom.events[0];
+  const eveningEvent = evening.reminders.custom.events[0];
+
+  assert.equal(morningEvent.id, 'custom_morning');
+  assert.equal(morningEvent.label, 'Morning focus');
+  assert.deepEqual(morningEvent.times, [{ h: 8, m: 15 }]);
+  assert.equal(morningEvent.start_date, '2026-10-15');
+  assert.equal(eveningEvent.id, 'custom_evening');
+  assert.equal(eveningEvent.label, 'Evening wind-down');
+  assert.deepEqual(eveningEvent.times, [{ h: 20, m: 15 }]);
+  assert.equal(eveningEvent.start_date, '2026-10-16');
+});
+
+test('builds one device payload containing all challenge events with distinct IDs', () => {
+  const makeInput = (deviceEventId, label) => ({
+    habit: {
+      habitId: deviceEventId, label, times: [{ h: 19, m: 0 }], days: [], display_ms: 60000,
+      text_x: 120, text_y: 100, text_size: 1, text_color: 65535, text_align: 1, text_width: 180,
+    },
+    startDate: '2026-11-02', endDate: '2026-11-22', deviceEventId,
+  });
+  const result = buildChallengeDeviceJsonForChallenges([
+    makeInput('custom_002', 'Singing'),
+    makeInput('custom_003', 'Read a Book'),
+  ]);
+
+  assert.deepEqual(result.reminders.custom.events.map(({ id, label }) => [id, label]), [
+    ['custom_002', 'Singing'],
+    ['custom_003', 'Read a Book'],
+  ]);
+  assert.throws(() => buildChallengeDeviceJsonForChallenges([
+    makeInput('custom_002', 'Singing'),
+    makeInput('custom_002', 'Read a Book'),
+  ]), /unique device event ID/);
 });
 
 test('counts distinct in-window days, resets current streak after a miss, and excludes out-of-window check-ins', () => {

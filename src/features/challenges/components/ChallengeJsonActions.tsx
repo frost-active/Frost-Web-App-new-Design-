@@ -2,9 +2,9 @@ import * as React from 'react';
 import { useState } from 'react';
 import type { ChallengeDeviceJson } from '../types';
 
-type Props = { deviceJson: ChallengeDeviceJson | null; pendingMessage: string; fileName: string };
+type Props = { deviceJson: ChallengeDeviceJson | null; pendingMessage: string; fileName: string; note?: string };
 
-export default function ChallengeJsonActions({ deviceJson, pendingMessage, fileName }: Props) {
+export default function ChallengeJsonActions({ deviceJson, pendingMessage, fileName, note }: Props) {
   const [expanded, setExpanded] = useState(false);
   const jsonText = deviceJson ? JSON.stringify(deviceJson, null, 2) : '';
   const exportJson = () => {
@@ -20,6 +20,7 @@ export default function ChallengeJsonActions({ deviceJson, pendingMessage, fileN
   return (
     <div className="challenge-json-actions">
       {!deviceJson && <p className="challenge-json-preview-note" role="status">{pendingMessage}</p>}
+      {deviceJson && note && <p className="challenge-json-preview-note">{note}</p>}
       <button type="button" aria-expanded={expanded} disabled={!deviceJson} onClick={() => setExpanded((value) => !value)}>
         {expanded ? 'Hide device JSON' : 'View device JSON'}
       </button>
