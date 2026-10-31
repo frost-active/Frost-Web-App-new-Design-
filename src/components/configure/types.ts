@@ -5,6 +5,16 @@
 
 export type CfgSelection = { k: string; i: number } | null;
 
+export type AiHabitSchedule = {
+  label: string;
+  times: Array<{ h: number; m: number }>;
+  days: string[];
+  start_date: string | null;
+  end_date: string | null;
+  enabled: boolean;
+  streakDays: number;
+};
+
 export type CfgGroup = {
   id?: string;
   name: string;
@@ -111,6 +121,10 @@ export type ConfigureBridge = {
   setCustomDate: (gid: string, value: string) => void;
   /** Device-JSON validity window for one reminder (id = cat.k, or `${cat.k}:${gid}` for a medicine/habit group) */
   setStreakWindow: (id: string, startISO: string, endISO: string) => void;
+  /** Applies a parsed Aura habit to the editable custom-habit schedule and selects it. */
+  applyAiHabit: (habit: AiHabitSchedule) => string | null;
+  /** Applies changed built-in reminders from an Aura scheduler config and returns their habit IDs. */
+  applyAiSchedule: (configuration: unknown, categories: string[]) => Array<{ id: string; streakDays: number }>;
   /** Marks a reminder as explicitly added through this UI, so it's included in the exported JSON even before any real device sync */
   markAdded: (id: string) => void;
 

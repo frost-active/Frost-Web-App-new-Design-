@@ -348,47 +348,52 @@
     .kpi{grid-template-columns:1fr}
   }
   /* ---------- Aura AI assistant ---------- */
-  .aura-fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:50;
-    width:56px;height:56px;border-radius:50%;border:0;cursor:pointer;
+  .aura-widget{position:fixed;right:20px;bottom:calc(20px + env(safe-area-inset-bottom));z-index:1000}
+  .aura-fab{width:58px;height:58px;border-radius:50%;border:0;cursor:pointer;
     background:linear-gradient(150deg,#5DCAA5,#1D9E75 60%,#29ABE2);color:#041828;
-    box-shadow:0 10px 26px rgba(29,158,117,.4);display:grid;place-items:center;font-family:Syne;font-weight:800;font-size:20px}
-  .aura-fab:active{transform:scale(.95)}
+    box-shadow:0 8px 28px rgba(29,158,117,.38),0 2px 6px rgba(0,0,0,.18);
+    display:grid;place-items:center;font-family:Syne;font-weight:800;font-size:22px;
+    transition:transform .18s ease,box-shadow .18s ease}
+  .aura-fab:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(29,158,117,.45),0 3px 8px rgba(0,0,0,.2)}
+  .aura-fab:active{transform:scale(.96)}
+  .aura-fab:focus-visible,.aura-card button:focus-visible,.aura-in input:focus-visible{outline:2px solid var(--sky);outline-offset:3px}
   body.aura-on .aura-fab{display:none}
-  /* only TIMING collapses while chatting — REMINDERS stays visible above it */
-  #insp{max-height:2000px;opacity:1;overflow:hidden;transition:max-height .3s ease,opacity .2s ease,margin .2s ease,padding .2s ease}
-  body.aura-on #insp{max-height:0;opacity:0;margin:0;padding:0;border-width:0;pointer-events:none}
-  .timing-hint{display:none;align-items:center;gap:10px;background:var(--panel2);border:1px dashed rgba(93,202,165,.4);
-    border-radius:12px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;color:var(--muted)}
-  body.aura-on .timing-hint{display:flex}
-  .timing-hint .ic{flex:none;font-size:15px}
-  .timing-hint b{color:var(--ink);font-weight:600}
-  .timing-hint button{margin-left:auto;flex:none;background:none;border:1px solid rgba(93,202,165,.5);color:#5DCAA5;
-    border-radius:99px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap}
-  .timing-hint button:hover{background:rgba(93,202,165,.12)}
   .aura-fab .spark{filter:drop-shadow(0 1px 1px rgba(0,0,0,.2))}
-  /* chat sits inline, exactly where Timing normally is */
-  .aura-card{display:none;flex-direction:column;background:var(--panel);border:1px solid rgba(93,202,165,.35);
-    border-radius:16px;overflow:hidden;height:min(58vh,460px)}
-  body.aura-on .aura-card{display:flex}
-  .aura-head{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--faint);flex:none}
+  .aura-card{position:absolute;right:0;bottom:0;display:none;flex-direction:column;
+    width:min(390px,calc(100vw - 32px));height:min(480px,calc(100dvh - 40px - env(safe-area-inset-bottom)));
+    background:var(--panel);border:1px solid rgba(93,202,165,.32);border-radius:20px;overflow:hidden;
+    box-shadow:0 22px 70px rgba(0,0,0,.32),0 4px 16px rgba(0,0,0,.16);transform-origin:bottom right}
+  body.aura-on .aura-card{display:flex;animation:aura-pop-in .2s ease-out both}
+  @keyframes aura-pop-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .aura-head{display:flex;align-items:center;gap:11px;padding:15px 16px;border-bottom:1px solid var(--faint);flex:none;
+    background:linear-gradient(120deg,rgba(93,202,165,.1),transparent 72%)}
   .aura-head .av{width:32px;height:32px;border-radius:50%;background:linear-gradient(150deg,#5DCAA5,#1D9E75);display:grid;place-items:center;color:#041828;font-family:Syne;font-weight:800}
-  .aura-head .nm{font-family:Syne;font-weight:700;font-size:14.5px}
+  .aura-head .nm{font-family:Syne;font-weight:700;font-size:14.5px;line-height:1.2}
   .aura-head .nm small{display:block;font:500 11px "DM Sans";color:var(--muted)}
-  .aura-head .x{margin-left:auto;background:none;border:0;color:var(--muted);font-size:22px;cursor:pointer;padding:4px 8px}
-  .aura-msgs{flex:1;overflow-y:auto;padding:13px 14px 6px;display:flex;flex-direction:column;gap:10px;min-height:0}
-  .amsg{max-width:86%;padding:10px 13px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap}
+  .aura-head .x{margin-left:auto;width:36px;height:36px;display:grid;place-items:center;background:transparent;
+    border:0;border-radius:10px;color:var(--muted);font-size:24px;cursor:pointer}
+  .aura-head .x:hover{background:var(--panel2);color:var(--ink)}
+  .aura-msgs{flex:1;overflow-y:auto;padding:16px 15px 10px;display:flex;flex-direction:column;gap:11px;min-height:0;overscroll-behavior:contain}
+  .amsg{max-width:88%;padding:11px 14px;border-radius:15px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
   .amsg.user{align-self:flex-end;background:var(--sky);color:#04121e;border-bottom-right-radius:5px}
   .amsg.aura{align-self:flex-start;background:var(--panel2);border:1px solid var(--faint);border-bottom-left-radius:5px}
   .amsg.aura.think{color:var(--muted);font-style:italic}
-  .aura-chips{flex:none;display:flex;gap:7px;overflow-x:auto;padding:6px 14px;scrollbar-width:none}
+  .aura-chips{flex:none;display:flex;gap:7px;overflow-x:auto;padding:8px 14px;scrollbar-width:none;overscroll-behavior-x:contain}
   .aura-chips::-webkit-scrollbar{display:none}
   .aura-chips button{flex:none;white-space:nowrap;background:var(--panel2);border:1px solid var(--faint);color:var(--ink);
-    border-radius:99px;padding:7px 12px;font-size:12px;cursor:pointer}
-  .aura-in{flex:none;display:flex;gap:8px;padding:10px 14px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--faint)}
-  .aura-in input{flex:1;background:var(--panel2);border:1px solid var(--faint);border-radius:12px;color:var(--ink);font-size:15px;padding:12px}
+    border-radius:99px;padding:8px 12px;font-size:12px;cursor:pointer;transition:background .15s ease,border-color .15s ease}
+  .aura-chips button:hover{border-color:rgba(93,202,165,.55);background:rgba(93,202,165,.1)}
+  .aura-in{flex:none;display:flex;gap:9px;padding:12px 14px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--faint);background:var(--panel)}
+  .aura-in input{min-width:0;flex:1;background:var(--panel2);border:1px solid var(--faint);border-radius:12px;color:var(--ink);font-size:14px;padding:12px 13px}
   .aura-in input:focus{outline:none;border-color:var(--sky)}
-  .aura-in button{border:0;border-radius:12px;background:var(--teal);color:#041828;font-family:Syne;font-weight:700;padding:0 16px;cursor:pointer}
-  .aura-in button:disabled{opacity:.5}
+  .aura-in button{border:0;border-radius:12px;background:var(--teal);color:#041828;font-family:Syne;font-weight:700;padding:0 17px;cursor:pointer}
+  .aura-in button:hover:not(:disabled){filter:brightness(1.08)}
+  .aura-in button:disabled{opacity:.5;cursor:wait}
+  @media(max-width:520px){
+    .aura-widget{right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}
+    .aura-card{width:min(390px,calc(100vw - 24px));height:min(500px,calc(100dvh - 24px - env(safe-area-inset-bottom)));border-radius:18px}
+  }
+  @media(prefers-reduced-motion:reduce){.aura-fab,.aura-card{transition:none;animation:none}}
 
   /* ---------- FIREBASE AUTH ---------- */
   .auth-loading{min-height:100vh;display:grid;place-items:center;background:#f1eee7;color:#153c3b;font:800 18px Syne;letter-spacing:.18em}
@@ -405,5 +410,3 @@
   .auth-panel{display:grid;place-items:center;padding:40px 8vw;background:#f1eee7}.auth-panel-inner{width:min(100%,390px)}.auth-mobile-brand{display:none}.auth-heading{margin-bottom:29px}.auth-heading h2{font:700 34px/1.08 Syne;letter-spacing:-.025em;color:#173c3a;margin:0 0 10px}.auth-heading>p:last-child{color:#71807b;font-size:13px;line-height:1.55;margin:0}.auth-tabs{display:flex;gap:25px;border-bottom:1px solid #d8d6ce;margin-bottom:25px}.auth-tabs button{border:0;background:none;color:#8b938d;padding:0 0 11px;font:600 12px "DM Sans";cursor:pointer;position:relative}.auth-tabs button.active{color:#173c3a}.auth-tabs button.active::after{content:"";position:absolute;height:2px;left:0;right:0;bottom:-1px;background:#d39f45}.auth-form{display:flex;flex-direction:column;gap:17px}.auth-form label{display:flex;flex-direction:column;gap:7px;color:#6c7873;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.auth-form input{width:100%;border:1px solid #d5d5cc;border-radius:2px;background:#fbfaf6;color:#173c3a;padding:13px 14px;font:500 14px "DM Sans";outline:0;transition:border-color .15s,box-shadow .15s}.auth-form input:focus{border-color:#398e77;box-shadow:0 0 0 3px rgba(57,142,119,.1)}.auth-form input::placeholder{color:#b2b7b1}.auth-primary,.auth-google{height:47px;border:0;border-radius:2px;font:700 12px "DM Sans";letter-spacing:.04em;cursor:pointer;transition:transform .15s,opacity .15s}.auth-primary{display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:#173f3c;color:#fffaf0}.auth-primary span{font-size:19px;font-weight:400}.auth-google{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;border:1px solid #d5d5cc;background:#fbfaf6;color:#294b48}.auth-google strong{font:700 17px Georgia;color:#4285f4}.auth-primary:hover,.auth-google:hover{transform:translateY(-1px)}.auth-primary:disabled,.auth-google:disabled{opacity:.55;cursor:wait;transform:none}.auth-divider{display:flex;align-items:center;gap:12px;color:#a1a59f;font-size:11px;margin:23px 0 15px}.auth-divider::before,.auth-divider::after{content:"";height:1px;background:#d8d6ce;flex:1}.auth-error{margin:-3px 0 -2px;padding:10px 12px;border-left:2px solid #c8674e;background:#f7e8e1;color:#a74d39;font-size:12px;line-height:1.4}.auth-legal{color:#a1a59f;font-size:10px;line-height:1.5;text-align:center;margin:18px auto 0;max-width:285px}
   @media(max-width:850px){.auth-shell{display:block}.auth-visual{min-height:235px;padding:23px 22px}.auth-visual-copy{margin-top:45px;max-width:320px}.auth-visual h1{font-size:38px}.auth-visual-copy>p:last-child,.auth-orbit,.auth-visual-foot{display:none}.auth-panel{min-height:calc(100vh - 235px);padding:38px 24px 48px}.auth-brand{font-size:15px}.auth-status{font-size:9px}}
   @media(max-width:480px){.auth-visual{min-height:200px}.auth-visual-copy{margin-top:35px}.auth-visual h1{font-size:33px}.auth-panel{min-height:calc(100vh - 200px);padding:32px 20px 40px}.auth-heading h2{font-size:29px}.auth-mobile-brand{display:block;margin-bottom:30px}.auth-visual .auth-brand{display:none}}
-
-

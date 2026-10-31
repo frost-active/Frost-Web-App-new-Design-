@@ -18,6 +18,8 @@ npm run preview
 
 The existing Aura API fallback behavior is retained. The Device page now uses Web Bluetooth with the Python controller's `FROST`/`ESP32_RTC` name filters, characteristic UUID, write-without-response mode, timing delays, status reads, and 40-byte JSON chunks.
 
+The Aura habit assistant uses the production scheduler at `https://frost-ai-eehc.onrender.com/parse` by default, including during local development. To use a scheduler running locally, set `VITE_HABIT_API_URL=http://127.0.0.1:5000/parse` in `.env.local` and restart Vite.
+
 ## Authentication
 
 Firebase Authentication is configured in `src/firebase.ts`. Enable **Email/Password** and **Google** under Firebase Console > Authentication > Sign-in method, and add the local development host plus the production host under Authorized domains. The dashboard is rendered only after Firebase reports an authenticated user.

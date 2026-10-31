@@ -7,6 +7,7 @@ import { ensureDeviceBindingMatchesUser, getSavedDeviceConfig, saveDailyGoal, sa
 import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 import { localDateISO, withCurrentSyncStartDates } from './utils/deviceSyncDates';
+import { HabitScheduler } from './components/configure/aiHabitConfig';
 const frostMarkup = String.raw`<style id="frost-mobile-fix">
 /* Clock toolbar — Sync Now on the top-right of the dial (desktop + mobile) */
 #page-configure .clockcard {
@@ -165,24 +166,6 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
       <div class="cfg-daycol cfg-side">
         <div id="configure-side-root" class="cfg-daycol"></div>
         <button class="btn pri cfg-habits-sync" id="cfgSyncHabits" type="button" title="Send current schedule to your FROST Aura" aria-label="Sync schedule to device">Sync to Device</button>
-        <div class="timing-hint" id="timingHint">
-          <span class="ic">⏱</span>
-          <span><b>Timing</b> is hidden while you chat with Aura.</span>
-          <button id="showTiming">Show Timing</button>
-        </div>
-        <div class="aura-card" id="auraCard">
-          <div class="aura-head">
-            <div class="av">✦</div>
-            <div class="nm">Aura<small>your schedule assistant</small></div>
-            <button class="x" id="auraX" aria-label="Close">×</button>
-          </div>
-          <div class="aura-msgs" id="auraMsgs"></div>
-          <div class="aura-chips" id="auraChips"></div>
-          <div class="aura-in">
-            <input id="auraInput" placeholder="Ask Aura or give a command…" autocomplete="off">
-            <button id="auraSend">Send</button>
-          </div>
-        </div>
       </div>
     </div>
   </section>
@@ -257,7 +240,22 @@ const frostMarkup = String.raw`<style id="frost-mobile-fix">
 </div>
 <div class="toast" id="toast"></div>
 
-<button class="aura-fab" id="auraFab" aria-label="Open Aura assistant"><span class="spark">✦</span></button>`;
+<section class="aura-widget" aria-label="Aura assistant">
+  <div class="aura-card" id="auraCard" role="dialog" aria-labelledby="auraTitle" aria-modal="false" aria-hidden="true">
+    <div class="aura-head">
+      <div class="av" aria-hidden="true">✦</div>
+      <div class="nm" id="auraTitle">Aura<small>your schedule assistant</small></div>
+      <button class="x" id="auraX" type="button" aria-label="Close Aura assistant">×</button>
+    </div>
+    <div class="aura-msgs" id="auraMsgs" role="log" aria-live="polite" aria-relevant="additions"></div>
+    <div class="aura-chips" id="auraChips" aria-label="Suggested prompts"></div>
+    <form class="aura-in" id="auraForm">
+      <input id="auraInput" aria-label="Message Aura" placeholder="Ask Aura or give a command…" autocomplete="off">
+      <button id="auraSend" type="submit">Send</button>
+    </form>
+  </div>
+  <button class="aura-fab" id="auraFab" type="button" aria-label="Open Aura assistant" aria-expanded="false" aria-controls="auraCard"><span class="spark" aria-hidden="true">✦</span></button>
+</section>`;
 
 /* Window listeners from an earlier mount (sign out, sign back in) outlive their DOM. The ones that load or
    report the synced schedule check that they belong to the mount that is on screen now. */
@@ -803,7 +801,7 @@ function cfgVisible(id){
    groups), pushed from the My day tracker whenever a streak length, active days, or a custom
    habit's date changes. Purely a JSON-export concern — never touches CATS/RAW or the dial. */
 const cfgStreakWindows={};
-function cfgSetStreakWindow(id,start,end){ cfgStreakWindows[id]={start,end}; }
+function cfgSetStreakWindow(id,start,end){ cfgStreakWindows[id]={start,end}; cfgView=null; }
 function cfgStreakWindowFor(id,days,startOverride){
   const w=cfgStreakWindows[id];
   if(w) return w;
@@ -1164,6 +1162,90 @@ function cfgAddCustom(){
   c.times.push(at);c.labels.push(name);c.gi.push(gidx);sortCat(c);
   c.on=true;sel={k:'custom',i:Math.max(0,c.gi.indexOf(gidx))};renderConfigure();return id;
 }
+function cfgApplyAiHabit(habit){
+  const c=CATS.find(x=>x.k==='custom');
+  const label=String(habit?.label||'').trim().slice(0,25);
+  const times=(Array.isArray(habit?.times)?habit.times:[])
+    .map(time=>Number(time.h)+Number(time.m||0)/60)
+    .filter(time=>Number.isFinite(time)&&time>=0&&time<24)
+    .slice(0,12);
+  if(!c||!label||!times.length)return null;
+  let group=c.groups.find(item=>item.challengeRole!=='device'&&String(item.name||'').trim().toLowerCase()===label.toLowerCase());
+  if(!group){
+    const id=cfgAddCustom();
+    group=c.groups.find(item=>String(item.id)===String(id));
+  }
+  if(!group)return null;
+  const gidx=c.groups.indexOf(group);
+  cfgOcc(c,gidx).sort((a,b)=>b-a).forEach(i=>{
+    c.times.splice(i,1);
+    if(c.labels)c.labels.splice(i,1);
+    if(c.gi)c.gi.splice(i,1);
+  });
+  const dayKeys=['sun','mon','tue','wed','thu','fri','sat'];
+  const selectedDays=Array.isArray(habit.days)&&habit.days.length
+    ? habit.days.map(day=>dayKeys.indexOf(day)).filter(day=>day>=0)
+    : CFG_ALL_DAYS.slice();
+  group.name=label;
+  group.days=[...new Set(selectedDays)].sort((a,b)=>a-b);
+  group.enabled=habit.enabled!==false;
+  group.type='recurring';
+  group.date=null;
+  times.forEach(time=>{
+    c.times.push(time);
+    c.labels.push(label);
+    c.gi.push(gidx);
+  });
+  c.on=true;
+  sortCat(c);
+  sel={k:'custom',i:c.gi.indexOf(gidx)};
+  renderConfigure();
+  return String(group.id);
+}
+function cfgApplyAiSchedule(configuration,categories){
+  if(!Array.isArray(categories)||!categories.length)return [];
+  let model;
+  try{
+    model=syncedConfigToModel(configuration);
+  }catch(error){
+    console.error('Aura returned a schedule the editor could not read.',error);
+    toast('Aura updated the schedule, but the editor could not read it.');
+    return [];
+  }
+  const updatedIds=[];
+  const selected=new Set(categories);
+  const reminderKeys={water:'hydration',eye:'eye',stretch:'stretch',walk:'walk',meditation:'meditation',meds:'medication'};
+  selected.forEach(key=>{
+    if(reminderKeys[key]){
+      RAW.reminders[reminderKeys[key]]=structuredClone(model.raw.reminders[reminderKeys[key]]);
+      if(key==='meds'){
+        model.raw.reminders.medication.medicines.forEach((medicine,index)=>{
+          const id=String(medicine.id||`med_${String(index+1).padStart(3,'0')}`);
+          updatedIds.push({id:`meds:${id}`,streakDays:model.streakDays[`meds:${id}`]||21});
+        });
+      }else updatedIds.push({id:key,streakDays:model.streakDays[key]||21});
+    }else if(key==='clean'){
+      RAW.bottle_clean=structuredClone(model.raw.bottle_clean);
+      updatedIds.push({id:'clean',streakDays:model.streakDays.clean||21});
+    }else if(key==='healing'){
+      RAW.audio.healing={...model.raw.audio.healing,tracks:RAW.audio.healing.tracks};
+      RAW.audio.healing_schedules=structuredClone(model.raw.audio.healing_schedules);
+      updatedIds.push({id:'healing',streakDays:model.streakDays.healing||21});
+    }else if(key==='pomodoro'){
+      RAW.pomodoro=structuredClone(model.raw.pomodoro);
+      updatedIds.push({id:'pomodoro',streakDays:model.streakDays.pomodoro||21});
+    }
+  });
+  Object.entries(model.streakWindows).forEach(([id,window])=>{
+    const category=id.split(':',1)[0];
+    if(selected.has(category))cfgStreakWindows[id]=window;
+  });
+  CATS=buildActiveCategories(RAW);
+  syncPomo();
+  normalizeSelection();
+  renderConfigure();
+  return updatedIds;
+}
 function cfgDeleteGroup(k,gid){
   const {c,group,gidx}=cfgFind(k,gid);if(!c||!group)return;
   let occ=cfgOcc(c,gidx);
@@ -1181,7 +1263,7 @@ const configureBridge={
   musicTracks:cfgGetMusicTracks, setMusicTracks:cfgSetMusicTracks,
   setLabel:cfgSetLabel, setMedDate:cfgSetMedDate, toggleDay:cfgToggleDay, setCustomMode:cfgSetCustomMode, setCustomDate:cfgSetCustomDate,
   setEnabled:cfgSetEnabled, addTemplate:cfgAddTemplate, addMedicine:cfgAddMedicine, addCustom:cfgAddCustom, deleteGroup:cfgDeleteGroup,
-  setStreakWindow:cfgSetStreakWindow, markAdded:cfgMarkAdded,
+  setStreakWindow:cfgSetStreakWindow, applyAiHabit:cfgApplyAiHabit, applyAiSchedule:cfgApplyAiSchedule, markAdded:cfgMarkAdded,
   registerHabitIds:provider=>{cfgHabitIds=provider;},
   setNotificationCount:count=>{
     challengeUnreadCount=Math.max(0,Math.floor(Number(count)||0));
@@ -2365,88 +2447,71 @@ function applyAction(a){
 }
 
 /* offline fallback parser for the most common commands */
-function parseClock(s){s=String(s).trim().toLowerCase().replace(/\./g,'');const m=s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);if(!m)return null;
-  let h=+m[1],mi=m[2]?+m[2]:0;const ap=m[3]; if(ap==='pm'&&h<12)h+=12; if(ap==='am'&&h===12)h=0; if(h>23)h=23; return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0');}
-function matchCat(t){for(const k in AURA_KEYS){if(AURA_KEYS[k].some(s=>t.includes(s)))return k;}return null;}
-function auraLocal(text){
-  const t=text.toLowerCase(); const key=matchCat(t);
-  const tmRaw=(t.match(/\bat\s+([0-9:]+\s*(?:am|pm)?)/)||[])[1]||(t.match(/([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm))/)||[])[1];
-  const hm=tmRaw?parseClock(tmRaw):null;
-  if(/\b(turn|switch|toggle|enable|disable)\b/.test(t)&&key){const on=/\b(on|enable)\b/.test(t)&&!/\b(off|disable)\b/.test(t);
-    return {reply:`${on?'Enabled':'Disabled'} ${auraLabel(key)}.`,actions:[{op:'toggle',cat:key,on}]};}
-  if(/\b(add|create|remind|schedule)\b/.test(t)&&key&&hm) return {reply:`Added ${auraLabel(key)} at ${fmt(toHM(hm))}.`,actions:[{op:'add',cat:key,time:hm}]};
-  if(/\b(delete|remove|cancel|clear)\b/.test(t)&&key&&hm) return {reply:`Removed ${auraLabel(key)} at ${fmt(toHM(hm))}.`,actions:[{op:'delete',cat:key,time:hm}]};
-  if(/\b(how many|count|list|what).*(reminder|hydration|water|medication)/.test(t)){
-    const tot=CATS.filter(c=>c.on).reduce((a,c)=>a+c.times.length,0);
-    if(key){const c=CATS.find(x=>x.k===key);return {reply:`${auraLabel(key)} is ${c.on?'on':'off'} with ${c.times.length} reminder${c.times.length===1?'':'s'}: ${c.times.map(fmt).join(', ')}.`,actions:[]};}
-    return {reply:`You have ${tot} reminders across ${CATS.filter(c=>c.on).length} active types today.`,actions:[]};}
-  return null;
-}
-
-function auraSchedule(){
-  return CATS.map(c=>({key:c.k,name:c.label,on:c.on,type:c.type,mode:c.mode||null,every_h:c.every||null,
-    window:(c.from!=null&&c.mode==='interval')?`${fmt(c.from)}-${fmt(c.to)}`:null,dur_min:c.dur,
-    times:c.times.map(fmt),labels:c.labels||null}));
-}
-function auraSystem(){
-  return `You are Aura, the warm, concise assistant built into the FROST reminder app. You help the user view, add, change, delete and toggle reminders, and answer questions/insights about their schedule.
-Current time: ${fmt(NOW_H)}.
-Current schedule: ${JSON.stringify(auraSchedule())}
-Use ONLY these category keys: water(Hydration), meds(Medication), eye(Eye break), stretch(Stretch), walk(Walk), meditation(Meditation), custom(Custom), clean(Bottle Clean), healing(Healing), pomodoro(Pomodoro).
-Respond with ONLY a JSON object, no markdown, no prose outside JSON:
-{"reply":"<friendly message, under 40 words>","actions":[ ...zero or more... ]}
-Actions:
-{"op":"toggle","cat":"KEY","on":true|false}
-{"op":"add","cat":"KEY","time":"HH:MM","dur":MIN,"label":"TEXT"}   (dur,label optional)
-{"op":"delete","cat":"KEY","time":"HH:MM"}
-{"op":"move","cat":"KEY","from":"HH:MM","to":"HH:MM"}
-{"op":"setdur","cat":"KEY","dur":MIN}
-{"op":"setinterval","cat":"KEY","every":HOURS,"from":"HH:MM","to":"HH:MM"}   (for repeating reminders like water/eye)
-{"op":"setlabel","cat":"KEY","time":"HH:MM","label":"TEXT"}   (Medication/Custom only)
-Rules: 24h HH:MM times. For questions or insights, return "actions":[] and put the answer in "reply". If unclear or the category is unknown, ask a short clarifying question with empty actions. Never invent categories or data.`;
-}
-function auraExtractJSON(raw){ let s=String(raw).replace(/```json|```/g,'').trim(); const a=s.indexOf('{'),b=s.lastIndexOf('}');
-  if(a>=0&&b>a)s=s.slice(a,b+1); try{return JSON.parse(s);}catch(e){return null;} }
-
-let auraHistory=[], auraBusy=false;
+const auraScheduler=new HabitScheduler();
+let auraBusy=false;
 function auraAdd(role,text,cls){const box=document.getElementById('auraMsgs');const d=document.createElement('div');
   d.className='amsg '+role+(cls?' '+cls:'');d.textContent=text;box.appendChild(d);box.scrollTop=box.scrollHeight;return d;}
 async function auraAsk(text){
   if(auraBusy||!text.trim())return; auraBusy=true; document.getElementById('auraSend').disabled=true;
   auraAdd('user',text); const think=auraAdd('aura','Aura is thinking…','think');
-  let obj=null, usedLLM=false;
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:auraSystem(),
-        messages:auraHistory.concat([{role:'user',content:text}])})});
-    const data=await res.json();
-    const raw=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
-    obj=auraExtractJSON(raw); if(obj){usedLLM=true; auraHistory.push({role:'user',content:text}); auraHistory.push({role:'assistant',content:raw}); if(auraHistory.length>12)auraHistory=auraHistory.slice(-12);}
-  }catch(e){ /* offline / not in Claude — fall back below */ }
-  if(!obj) obj=auraLocal(text);
-  think.remove();
-  if(obj){
-    let n=0; (obj.actions||[]).forEach(a=>{ if(applyAction(a))n++; });
-    if(n)auraRender();
-    auraAdd('aura', obj.reply || (n?`Done — updated ${n} thing${n===1?'':'s'}.`:'Okay.'));
-  } else {
-    auraAdd('aura', "I couldn't reach my AI just now, so I only understand simple commands offline — e.g. “add water at 3pm”, “turn off eye breaks”, “how many reminders today?”. Open me inside Claude for full conversation.");
+    const result=await auraScheduler.send(text);
+    if(result.status==='empty')return;
+    if(result.status==='error'){
+      auraAdd('aura',result.error);
+      return;
+    }
+    if(result.status==='question'){
+      auraAdd('aura',result.reply);
+      return;
+    }
+    const changed=[...result.changes.added,...result.changes.updated];
+    const presetCategories=result.changedCategories.filter(category=>category!=='custom');
+    if(presetCategories.length){
+      window.dispatchEvent(new CustomEvent('frost-ai-habit-configure',{
+        detail:{configuration:result.configuration,categories:presetCategories,requestedStreakDays:result.requestedStreakDays}
+      }));
+    }
+    let applied=0;
+    changed.forEach(habit=>{
+      if(!result.changedCategories.includes('custom'))return;
+      window.dispatchEvent(new CustomEvent('frost-ai-habit-configure',{detail:{habit}}));
+      applied++;
+    });
+    const details=[...result.notes,...result.invalid].filter(Boolean).join(' ');
+    const reply=result.reply || result.summary.join(' ') || (applied
+      ? `Updated ${applied} habit${applied===1?'':'s'} in your schedule. Review the circle and editor, then use Sync Now when you're ready.`
+      : 'I could not find a habit change in that request. Please describe the habit, time, active days, and streak length.');
+    auraAdd('aura',details?`${reply} ${details}`:reply);
+  }catch(error){
+    auraAdd('aura',error instanceof Error?error.message:'The habit could not be configured.');
+  }finally{
+    think.remove();
+    auraBusy=false;
+    document.getElementById('auraSend').disabled=false;
   }
-  auraBusy=false; document.getElementById('auraSend').disabled=false;
 }
-function auraOpen(){document.body.classList.add('aura-on');
+function auraOpen(){
+  if(document.body.classList.contains('aura-on'))return;
+  document.body.classList.add('aura-on');
+  document.getElementById('auraCard').setAttribute('aria-hidden','false');
+  document.getElementById('auraFab').setAttribute('aria-expanded','true');
   if(!document.getElementById('auraMsgs').children.length){
-    auraAdd('aura',"Hi, I'm Aura ✦ — tell me what to change and I'll handle your reminders. Try “add a walk at 4pm”, “make hydration every 3 hours”, or ask “what's my busiest part of the day?”");
+    auraAdd('aura',"Hi, I'm Aura AI — tell me what to configure and I'll handle your habits. Try “add a walk at 4pm”");
   }
-  document.getElementById('auraCard').scrollIntoView({behavior:'smooth',block:'center'});
-  setTimeout(()=>document.getElementById('auraInput').focus(),150);}
-function auraClose(){document.body.classList.remove('aura-on');}
+  document.getElementById('auraInput').focus();}
+function auraClose(){
+  if(!document.body.classList.contains('aura-on'))return;
+  document.body.classList.remove('aura-on');
+  document.getElementById('auraCard').setAttribute('aria-hidden','true');
+  document.getElementById('auraFab').setAttribute('aria-expanded','false');
+  document.getElementById('auraFab').focus();
+}
 document.getElementById('auraFab').addEventListener('click',auraOpen);
 document.getElementById('auraX').addEventListener('click',auraClose);
-document.getElementById('showTiming').addEventListener('click',auraClose);
-document.getElementById('auraSend').addEventListener('click',()=>{const i=document.getElementById('auraInput');const v=i.value;i.value='';auraAsk(v);});
-document.getElementById('auraInput').addEventListener('keydown',e=>{if(e.key==='Enter'){const v=e.target.value;e.target.value='';auraAsk(v);}});
-['Add walk at 4pm','Hydration every 3 hours','Turn off eye breaks',"What's at 3pm?",'How many reminders today?'].forEach(q=>{
+document.getElementById('auraForm').addEventListener('submit',e=>{e.preventDefault();const i=document.getElementById('auraInput');const v=i.value;i.value='';auraAsk(v);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('aura-on'))auraClose();});
+['Add walk at 4pm','Hydration every 3 hours','Turn off eye breaks'].forEach(q=>{
   const b=document.createElement('button');b.textContent=q;b.addEventListener('click',()=>auraAsk(q));document.getElementById('auraChips').appendChild(b);});
 
 applyMode();

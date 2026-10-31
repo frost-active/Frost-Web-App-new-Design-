@@ -1,5 +1,5 @@
 import { clamp, unitFor } from './format';
-import type { CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureView, MusicCategory, PomoField } from './types';
+import type { AiHabitSchedule, CfgCategory, CfgGroup, CfgSyncState, ConfigureBridge, ConfigureView, MusicCategory, PomoField } from './types';
 
 /* ============================================================================
    The My day model.
@@ -441,6 +441,62 @@ export class MyDayStore {
     }
     this.commit();
     this.toast(`Habit added — day 1 of ${FORM_DEFAULT}. Tune when Aura cues it below.`);
+  }
+
+  applyAiSchedule(configuration: unknown, categories: string[], requestedStreakDays: number | null = null): boolean {
+    const updated = this.bridge.applyAiSchedule(configuration, categories);
+    if (!updated.length) return false;
+    const view = this.bridge.getView();
+    updated.forEach(({ id, streakDays }) => {
+      this.T.removed = this.T.removed.filter((removedId) => removedId !== id);
+      if (!this.T.added.includes(id)) this.T.added.push(id);
+      this.bridge.markAdded(id);
+
+      const record = this.rec(id);
+      const exactStreakDays = requestedStreakDays === null
+        ? clamp(Math.round(streakDays || FORM_DEFAULT), FORM_MIN, FORM_MAX)
+        : clamp(Math.round(requestedStreakDays), FORM_MIN, FORM_MAX);
+      record.streakDays = exactStreakDays;
+      let window = view.streakWindows[id];
+      if (requestedStreakDays !== null) {
+        const [category, groupId] = id.split(':');
+        const cat = view.cats.find((item) => item.k === category);
+        const group = groupId && cat?.groups
+          ? cat.groups.find((item, index) => String(item.id ?? index) === groupId)
+          : undefined;
+        const start = window?.start || view.today;
+        const activeDays = group?.days ?? cat?.days ?? [];
+        window = { start, end: streakEndDate(start, exactStreakDays, activeDays) };
+        this.bridge.setStreakWindow(id, window.start, window.end);
+      }
+      if (window?.start) {
+        record.streakStartDate = window.start;
+        record.streakStartScheduled = window.start > view.today;
+      }
+    });
+    this.commit();
+    return true;
+  }
+
+  applyAiHabit(habit: AiHabitSchedule): boolean {
+    const id = this.bridge.applyAiHabit(habit);
+    if (!id) return false;
+    const habitId = `custom:${id}`;
+    this.T.removed = this.T.removed.filter((removedId) => removedId !== habitId);
+    if (!this.T.added.includes(habitId)) this.T.added.push(habitId);
+    this.bridge.markAdded(habitId);
+
+    const record = this.rec(habitId);
+    const streakDays = clamp(Math.round(habit.streakDays || FORM_DEFAULT), FORM_MIN, FORM_MAX);
+    const start = habit.start_date || todayISO();
+    record.streakDays = streakDays;
+    record.streakStartDate = start;
+    record.streakStartScheduled = start > todayISO();
+
+    const days = habit.days.map((day) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(day));
+    this.bridge.setStreakWindow(habitId, start, streakEndDate(start, streakDays, days));
+    this.commit();
+    return true;
   }
 
   park(h: HabitVM): void {

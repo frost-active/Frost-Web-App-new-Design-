@@ -9,7 +9,7 @@ import { ConfigureClockPanel, ConfigureSidePanel } from './pages/ConfigurePage';
 import ChallengesPage from './features/challenges/ChallengesPage';
 import ChallengeNotifications from './features/challenges/components/ChallengeNotifications';
 import { MyDayStore } from './components/configure/store';
-import type { ConfigureBridge } from './components/configure/types';
+import type { AiHabitSchedule, ConfigureBridge } from './components/configure/types';
 import { useDeviceConfig, useDeviceConfigHistory } from './DeviceConfigSync';
 import type { User } from 'firebase/auth';
 
@@ -118,6 +118,18 @@ export default function HomeScreen({ user }: { user: User }) {
     // Configure ("My day") tab: the schedule lives in legacy.ts; the habit tracker
     // (streaks, challenges, audio library) is layered on top here, in the browser.
     myDayStore.current = new MyDayStore(configureBridge, user.uid);
+    const configureAiHabit = (event: Event) => {
+      const detail = (event as CustomEvent<{ habit?: AiHabitSchedule; configuration?: unknown; categories?: string[]; requestedStreakDays?: number | null }>).detail;
+      const applied = detail?.habit
+        ? myDayStore.current?.applyAiHabit(detail.habit)
+        : detail?.configuration && detail.categories
+          ? myDayStore.current?.applyAiSchedule(detail.configuration, detail.categories, detail.requestedStreakDays ?? null)
+          : false;
+      if (!applied) {
+        window.dispatchEvent(new CustomEvent('frost:toast', { detail: { message: 'Aura could not apply that habit schedule. Please try again or adjust it in the editor.' } }));
+      }
+    };
+    window.addEventListener('frost-ai-habit-configure', configureAiHabit);
     const configureClockHost = dashboard.querySelector<HTMLElement>('#configure-dial-root');
     if (configureClockHost) {
       configureClockRoot.current = createRoot(configureClockHost);
@@ -163,6 +175,7 @@ export default function HomeScreen({ user }: { user: User }) {
       headerControlsRoot.current = createRoot(headerControlsHost);
     }
     return () => {
+      window.removeEventListener('frost-ai-habit-configure', configureAiHabit);
       headerControlsRoot.current?.unmount();
       headerControlsRoot.current = null;
       bottleControlsRoot.current?.unmount();

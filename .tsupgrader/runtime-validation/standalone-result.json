@@ -1,0 +1,102 @@
+{
+  "planHash": "ee86c0cfd5168139681d92b6dd0544360236f1f16dfbc677873c5d48b544d97f",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-10-30T07:39:46.0873268Z",
+  "retryCount": 0,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "production-build",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E frost-aura-app@1.0.0 build\r\n\u003E tsc -b \u0026\u0026 vite build\r\n\r\n\u001B[36mvite v7.3.6 \u001B[32mbuilding client environment for production...\u001B[36m\u001B[39m\r\ntransforming...\r\n\u001B[32m\u2713\u001B[39m 125 modules transformed.\r\nrendering chunks...\r\ncomputing gzip size...\r\n\u001B[2mdist/\u001B[22m\u001B[32mindex.html                 \u001B[39m\u001B[1m\u001B[2m    0.70 kB\u001B[22m\u001B[1m\u001B[22m\u001B[2m \u2502 gzip:   0.42 kB\u001B[22m\r\n\u001B[2mdist/\u001B[22m\u001B[35massets/index-eEjlCngf.css  \u001B[39m\u001B[1m\u001B[2m   93.14 kB\u001B[22m\u001B[1m\u001B[22m\u001B[2m \u2502 gzip:  16.24 kB\u001B[22m\r\n\u001B[2mdist/\u001B[22m\u001B[36massets/index-VkR_w1bo.js   \u001B[39m\u001B[1m\u001B[33m1,013.40 kB\u001B[39m\u001B[22m\u001B[2m \u2502 gzip: 307.91 kB\u001B[22m\r\n\u001B[33m\r\n(!) Some chunks are larger than 500 kB after minification. Consider:\r\n- Using dynamic import() to code-split the application\r\n- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks\r\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\u001B[39m\r\n\u001B[32m\u2713 built in 7.48s\u001B[39m\r\n",
+        "durationMs": 20279
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E frost-aura-app@1.0.0 test\r\n\u003E node --import tsx --test\r\n\r\nTAP version 13\r\n# Subtest: allocates a custom ID beyond device events and reserved challenge habit IDs\r\nok 1 - allocates a custom ID beyond device events and reserved challenge habit IDs\r\n  ---\r\n  duration_ms: 3.6221\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: computes inclusive end dates and server-local timezone dates\r\nok 2 - computes inclusive end dates and server-local timezone dates\r\n  ---\r\n  duration_ms: 101.7354\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: validates date years and rejects challenge end dates beyond four-digit years\r\nok 3 - validates date years and rejects challenge end dates beyond four-digit years\r\n  ---\r\n  duration_ms: 5.3311\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: rejects predefined and already linked habit events\r\nok 4 - rejects predefined and already linked habit events\r\n  ---\r\n  duration_ms: 0.9238\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: recomputes in-range check-ins, resets a missed current streak, and shares exact ties\r\nok 5 - recomputes in-range check-ins, resets a missed current streak, and shares exact ties\r\n  ---\r\n  duration_ms: 5.6083\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: lifecycle preserves legacy participant thresholds and supports host-only challenges\r\nok 6 - lifecycle preserves legacy participant thresholds and supports host-only challenges\r\n  ---\r\n  duration_ms: 1.2192\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: same-day invites remain acceptable until the first scheduled cue and then activate\r\nok 7 - same-day invites remain acceptable until the first scheduled cue and then activate\r\n  ---\r\n  duration_ms: 1.0348\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: same-day acceptance stays open when the start date is not an active habit day\r\nok 8 - same-day acceptance stays open when the start date is not an active habit day\r\n  ---\r\n  duration_ms: 0.3908\r\n  type: \u0027test\u0027\r\n  ...\r\n# [2026-10-30T07:38:45.749Z]  @firebase/analytics: Analytics: IndexedDB unavailable or restricted in this environment. Wrap initialization of analytics in analytics.isSupported() to prevent initialization in unsupported environments. Details: IndexedDB is not available in this environment. (analytics/indexeddb-unavailable).\r\n# Subtest: challenge step scrolling only runs on changes and respects reduced motion\r\nok 9 - challenge step scrolling only runs on changes and respects reduced motion\r\n  ---\r\n  duration_ms: 2.6071\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: challenge draft rail selects independent named drafts and adds another draft\r\nok 10 - challenge draft rail selects independent named drafts and adds another draft\r\n  ---\r\n  duration_ms: 419.1244\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: empty challenge dial shows the Configure-style empty face without schedule tracks\r\nok 11 - empty challenge dial shows the Configure-style empty face without schedule tracks\r\n  ---\r\n  duration_ms: 94.9971\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: challenge live-time marker is positioned using IST regardless of selected timezone\r\nok 12 - challenge live-time marker is positioned using IST regardless of selected timezone\r\n  ---\r\n  duration_ms: 17.2415\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: device gate appears only when the Frost device is disconnected\r\nok 13 - device gate appears only when the Frost device is disconnected\r\n  ---\r\n  duration_ms: 16.4899\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: challenge date form uses the server minimum and computes inclusive end date\r\nok 14 - challenge date form uses the server minimum and computes inclusive end date\r\n  ---\r\n  duration_ms: 26.347\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: challenge date preview counts streak days only on selected weekdays\r\nok 15 - challenge date preview counts streak days only on selected weekdays\r\n  ---\r\n  duration_ms: 8.2187\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: invite card dispatches Accept and Decline actions\r\nok 16 - invite card dispatches Accept and Decline actions\r\n  ---\r\n  duration_ms: 315.2701\r\n  type: \u0027test\u0027\r\n  ...\r\n# Subtest: challenge habit editor configures custom cues and days without audio controls\r\nok 17 - challenge habit editor configures custom cues and days without audio contr\n\u2026[truncated]",
+        "durationMs": 65277,
+        "testResults": {
+          "testFramework": "unknown",
+          "runnerDetectedFrom": "none",
+          "testsTotal": 0,
+          "testsPassed": 0,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": true
+        }
+      },
+      {
+        "name": "dev-server-homepage",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n\u003C!doctype html\u003E\r\n\u003Chtml lang=\u0022en\u0022\u003E\r\n  \u003Chead\u003E\n    \u003Cscript type=\u0022module\u0022\u003Eimport { injectIntoGlobalHook } from \u0022/@react-refresh\u0022;\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () =\u003E {};\nwindow.$RefreshSig$ = () =\u003E (type) =\u003E type;\u003C/script\u003E\n\n    \u003Cscript type=\u0022module\u0022 src=\u0022/@vite/client\u0022\u003E\u003C/script\u003E\n\r\n    \u003Cmeta charset=\u0022UTF-8\u0022 /\u003E\r\n    \u003Cmeta name=\u0022viewport\u0022 content=\u0022width=device-width, initial-scale=1.0\u0022 /\u003E\r\n    \u003Cmeta name=\u0022theme-color\u0022 content=\u0022#041828\u0022 /\u003E\r\n    \u003Clink rel=\u0022preconnect\u0022 href=\u0022https://fonts.gstatic.com\u0022 crossorigin /\u003E\r\n    \u003Clink href=\u0022https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800\u0026family=DM\u002BSans:opsz,wght@9..40,400;9..40,500;9..40,700\u0026display=swap\u0022 rel=\u0022stylesheet\u0022 /\u003E\r\n    \u003Ctitle\u003EFROST - Aura\u003C/title\u003E\r\n  \u003C/head\u003E\r\n  \u003Cbody\u003E\r\n    \u003Cdiv id=\u0022root\u0022\u003E\u003C/div\u003E\r\n    \u003Cscript type=\u0022module\u0022 src=\u0022/src/main.tsx\u0022\u003E\u003C/script\u003E\r\n  \u003C/body\u003E\r\n\u003C/html\u003E",
+        "durationMs": 84
+      }
+    ],
+    "executions": [
+      {
+        "source": "production-build",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "run",
+          "build"
+        ],
+        "cwd": "D:\\frost-aura-app-day-counter\\frost-aura-app",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test"
+        ],
+        "cwd": "D:\\frost-aura-app-day-counter\\frost-aura-app",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "dev-server-homepage",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "run",
+          "dev",
+          "--",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "5173"
+        ],
+        "cwd": "D:\\frost-aura-app-day-counter\\frost-aura-app",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}
