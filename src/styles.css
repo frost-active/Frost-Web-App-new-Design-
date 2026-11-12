@@ -89,6 +89,16 @@
   #home-binding-root{position:relative;z-index:20}
   .binding-card,.binding-status,.binding-error,.binding-details{background:var(--panel);border:1px solid var(--faint);border-radius:14px;padding:14px 16px;margin:0 0 14px;color:var(--ink)}
   .binding-card h2{font:700 12px Syne;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}.binding-card p{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px}.binding-card-centered{max-width:430px;margin:20px auto;text-align:center}.binding-error{border-color:rgba(228,103,79,.45);color:#f0b0a1;font-size:12px;line-height:1.45}.binding-blocker{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:24px;background:rgba(4,24,40,.88);text-align:center}.binding-blocker h2{font:700 18px Syne;margin-bottom:10px}.binding-blocker p{max-width:390px;color:var(--muted);font-size:13px;line-height:1.55}.binding-details{margin:0}.binding-details .pill{display:inline-block;margin-bottom:10px}.binding-details dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:0}.binding-details dl div{min-width:0}.binding-details dt{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px}.binding-details dd{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0}.binding-status{font-size:11px;color:var(--muted)}
+  .binding-modal-backdrop{position:fixed;inset:0;z-index:110;display:grid;place-items:center;padding:16px;background:rgba(4,24,40,.78);backdrop-filter:blur(3px)}
+  .binding-modal{width:min(100%,430px);padding:22px;border:1px solid var(--faint);border-radius:14px;background:var(--panel);box-shadow:0 20px 56px rgba(0,0,0,.4);color:var(--ink)}
+  .binding-modal-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
+  .binding-modal-heading h2{font:700 18px Syne;margin:0 0 7px}
+  .binding-modal-heading p{font-size:13px;line-height:1.5;color:var(--muted);margin:0}
+  .binding-modal-close{width:44px;height:44px;flex:none;border:1px solid var(--faint);border-radius:7px;background:transparent;color:var(--muted);font-size:20px;line-height:1}
+  .binding-modal-close:hover{border-color:var(--sky);color:var(--ink)}
+  .binding-modal-bind{width:100%;padding:10px 14px}
+  .binding-modal-note{margin:10px 0 0;color:rgba(230,241,248,.76);font-size:12px;line-height:1.5;text-align:center}
+  .binding-modal .binding-error{margin:12px 0 0;padding:10px}
 
   /* shared cards */
   .card{background:var(--panel);border-radius:16px;padding:16px}
