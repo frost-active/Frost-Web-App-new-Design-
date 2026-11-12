@@ -17,11 +17,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function withCurrentSyncStartDates<T>(config: T, today = localDateISO()): T {
   if (!isISODate(today)) throw new Error('Cannot sync because the current local date is invalid.');
 
-  const visit = (value: unknown, path: string): unknown => {
-    if (Array.isArray(value)) return value.map((item, index) => visit(item, `${path}[${index}]`));
+  const challengeEventIds = new Set<string>();
+  if (isRecord(config) && isRecord(config.ui_meta) && Array.isArray(config.ui_meta.custom)) {
+    config.ui_meta.custom.forEach((event) => {
+      if (isRecord(event) && event.challengeRole === 'device' && typeof event.id === 'string') {
+        challengeEventIds.add(event.id);
+      }
+    });
+  }
+
+  const visit = (value: unknown, path: string, validateDates = true): unknown => {
+    if (Array.isArray(value)) return value.map((item, index) => visit(item, `${path}[${index}]`, validateDates));
     if (!isRecord(value)) return value;
 
-    const next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item, `${path}.${key}`)]));
+    const challengeManagedEvent = Object.hasOwn(value, 'start_date')
+      && typeof value.id === 'string'
+      && challengeEventIds.has(value.id);
+    const shouldValidateDates = validateDates && value.enabled !== false && !challengeManagedEvent;
+    const next = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item, `${path}.${key}`, shouldValidateDates)]));
+    if (!shouldValidateDates) return next;
+
     if (Object.hasOwn(value, 'start_date')) {
       const label = typeof value.label === 'string' ? value.label : path;
       const scheduledStart = isISODate(value.start_date) && value.start_date > today ? value.start_date : today;
