@@ -10,6 +10,7 @@ const INITIAL_CONFIG = {
   ...defaultConfig,
   reminders: {
     ...defaultConfig.reminders,
+    medication: { ...defaultConfig.reminders.medication, enabled: false, medicines: [] },
     custom: { ...defaultConfig.reminders.custom, enabled: false, events: [] },
   },
 };
@@ -27,6 +28,8 @@ export type AiHabit = {
 type SchedulerResponse = {
   data?: unknown;
   reply?: string;
+  message?: string;
+  detail?: string;
   needs_input?: boolean;
   pending?: unknown;
   summary?: string[];
@@ -46,6 +49,23 @@ export type HabitSchedulerResult =
 export function resolveApiUrl(configuredApiUrl = import.meta.env?.VITE_HABIT_API_URL): string {
   const configured = configuredApiUrl?.trim();
   return configured || PRODUCTION_API_URL;
+}
+
+function responseMessage(result: SchedulerResponse): string | null {
+  for (const value of [result.reply, result.message, result.detail]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function responseError(result: SchedulerResponse, payload: unknown): string {
+  const messages = [result.error, result.message, result.detail, result.reply]
+    .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
+    .map((value) => value.trim());
+  const uniqueMessages = [...new Set(messages)];
+  if (uniqueMessages.length) return uniqueMessages.join(' ');
+  if (typeof payload === 'string' && payload.trim()) return payload.trim();
+  return JSON.stringify(payload);
 }
 
 function toHM(value: unknown): { h: number; m: number } | null {
@@ -218,6 +238,36 @@ const WEEKDAY_ALIASES: Record<string, string> = {
   sunday: 'sun', sundays: 'sun', sun: 'sun',
 };
 
+function weekdayForName(name: string): string | undefined {
+  const normalized = name.toLowerCase();
+  const exact = WEEKDAY_ALIASES[normalized];
+  if (exact) return exact;
+  if (normalized.length < 5) return undefined;
+
+  const fullNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const nearMatch = fullNames.find((candidate) => {
+    if (Math.abs(candidate.length - normalized.length) > 1) return false;
+    let left = 0, right = 0, differences = 0;
+    while (left < candidate.length && right < normalized.length) {
+      if (candidate[left] === normalized[right]) {
+        left += 1;
+        right += 1;
+        continue;
+      }
+      differences += 1;
+      if (differences > 1) return false;
+      if (candidate.length > normalized.length) left += 1;
+      else if (normalized.length > candidate.length) right += 1;
+      else {
+        left += 1;
+        right += 1;
+      }
+    }
+    return differences + Number(left < candidate.length || right < normalized.length) <= 1;
+  });
+  return nearMatch ? WEEKDAY_ALIASES[nearMatch] : undefined;
+}
+
 function requestedActiveDays(text: string): string[] | null {
   const normalized = text.toLowerCase();
   const hasWeekdays = /\bweekdays?\b/.test(normalized);
@@ -231,13 +281,10 @@ function requestedActiveDays(text: string): string[] | null {
     if (hasWeekends) ['sat', 'sun'].forEach((day) => selected.add(day));
   }
 
-  const dayNames = Object.entries(WEEKDAY_ALIASES)
-    .sort(([left], [right]) => right.length - left.length)
-    .map(([name, day]) => ({ name, day }));
   const ranges = /\b([a-z]+)\s*(?:to|through|[-–—])\s*([a-z]+)\b/g;
   for (const match of normalized.matchAll(ranges)) {
-    const from = dayNames.find(({ name }) => name === match[1])?.day;
-    const to = dayNames.find(({ name }) => name === match[2])?.day;
+    const from = weekdayForName(match[1]);
+    const to = weekdayForName(match[2]);
     const start = ALL_DAYS.indexOf(from || '');
     const end = ALL_DAYS.indexOf(to || '');
     if (start < 0 || end < 0) continue;
@@ -249,19 +296,88 @@ function requestedActiveDays(text: string): string[] | null {
 
   const excluded = /\b(?:except|excluding|but not)\b([\s\S]*)/.exec(normalized)?.[1];
   if (excluded) {
-    Object.entries(WEEKDAY_ALIASES).forEach(([name, day]) => {
-      if (new RegExp(`(^|[^a-z])${name}($|[^a-z])`).test(excluded)) selected.delete(day);
-    });
+    for (const [, name] of excluded.matchAll(/\b([a-z]+)\b/g)) {
+      const day = weekdayForName(name);
+      if (day) selected.delete(day);
+    }
     if (/\bweekdays?\b/.test(excluded)) ['mon', 'tue', 'wed', 'thu', 'fri'].forEach((day) => selected.delete(day));
     if (/\bweekends?\b/.test(excluded)) ['sat', 'sun'].forEach((day) => selected.delete(day));
   } else {
-    Object.entries(WEEKDAY_ALIASES).forEach(([name, day]) => {
-      if (new RegExp(`(^|[^a-z])${name}($|[^a-z])`).test(normalized)) selected.add(day);
-    });
+    for (const [, name] of normalized.matchAll(/\b([a-z]+)\b/g)) {
+      const day = weekdayForName(name);
+      if (day) selected.add(day);
+    }
   }
 
   if (!selected.size || selected.size === 7) return selected.size === 7 ? ALL_DAYS.slice() : null;
   return ALL_DAYS.filter((day) => selected.has(day));
+}
+
+function summaryWeekdays(text: string): string[] | null {
+  const dayNames = Object.keys(WEEKDAY_ALIASES).sort((left, right) => right.length - left.length);
+  for (const segment of text.split(/[·•|]/)) {
+    const names = segment.trim().split(/\s*(?:,|&|\band\b)\s*/i);
+    if (!names.length || names.some((name) => !dayNames.includes(name.toLowerCase()))) continue;
+    const selected = new Set(names.map((name) => WEEKDAY_ALIASES[name.toLowerCase()]));
+    return ALL_DAYS.filter((day) => selected.has(day));
+  }
+  return null;
+}
+
+function medicationLabel(value: unknown): string {
+  if (!value || typeof value !== 'object') return '';
+  const item = value as Record<string, unknown>;
+  return String(item.label ?? item.name ?? '').trim();
+}
+
+function medicationLabelInText(label: string, text: string): boolean {
+  if (!label) return false;
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, 'i').test(text);
+}
+
+function applyMedicationSummaryDays(config: unknown, summaries: string[]): unknown {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+  const updated = structuredClone(config) as Record<string, unknown>;
+  const reminders = updated.reminders as Record<string, unknown> | undefined;
+  const medication = reminders?.medication as Record<string, unknown> | undefined;
+  const medicines = medication?.medicines;
+  if (!Array.isArray(medicines)) return config;
+
+  let changed = false;
+  for (const summary of summaries) {
+    const prefix = summary.match(/^\s*[-*•]?\s*(?:medication|medicine|meds?)\s+(.+?)\s*:/i);
+    const days = summaryWeekdays(summary);
+    if (!prefix || !days) continue;
+    const label = prefix[1].trim().replace(/^['"]|['"]$/g, '');
+    const matches = medicines.filter((medicine) => medicationLabel(medicine).toLowerCase() === label.toLowerCase());
+    if (matches.length !== 1) continue;
+    const medicine = matches[0] as Record<string, unknown>;
+    if (canonical(medicine.days) !== canonical(days)) {
+      medicine.days = days;
+      changed = true;
+    }
+  }
+  return changed ? updated : config;
+}
+
+function removeUnrequestedMedicationTemplate(config: unknown, text: string): unknown {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return config;
+  const reminders = (config as Record<string, unknown>).reminders;
+  if (!reminders || typeof reminders !== 'object' || Array.isArray(reminders)) return config;
+  const medication = (reminders as Record<string, unknown>).medication;
+  if (!medication || typeof medication !== 'object' || Array.isArray(medication)) return config;
+  const medicines = (medication as Record<string, unknown>).medicines;
+  if (!Array.isArray(medicines) || medicines.length < 2 || medicationLabelInText('Take Pill', text)) return config;
+
+  const withoutTemplate = medicines.filter((medicine) => medicationLabel(medicine).toLowerCase() !== 'take pill');
+  if (withoutTemplate.length === medicines.length) return config;
+
+  const updated = structuredClone(config) as Record<string, unknown>;
+  const updatedReminders = updated.reminders as Record<string, unknown>;
+  const updatedMedication = updatedReminders.medication as Record<string, unknown>;
+  updatedMedication.medicines = withoutTemplate;
+  return updated;
 }
 
 function requestedStreakDays(text: string): number | null {
@@ -288,7 +404,10 @@ function configForDays(config: unknown, category: string, days: string[], previo
     const section = reminders[keys[category]];
     if (category === 'meds' && section && typeof section === 'object') {
       const medicines = (section as Record<string, unknown>).medicines;
-      if (Array.isArray(medicines)) medicines.forEach(assignDays);
+      if (Array.isArray(medicines)) {
+        const namedMedicines = medicines.filter((medicine) => medicationLabelInText(medicationLabel(medicine), intentText));
+        (namedMedicines.length ? namedMedicines : medicines).forEach(assignDays);
+      }
     } else assignDays(section);
   } else if (category === 'healing') {
     const audio = updated.audio as Record<string, unknown> | undefined;
@@ -384,6 +503,13 @@ export class HabitScheduler {
   }
   get isBusy(): boolean { return this.busy; }
 
+  setConfiguration(configuration: unknown): void {
+    if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) {
+      throw new TypeError('The current scheduler configuration must be an object.');
+    }
+    this.config = structuredClone(configuration);
+  }
+
   async send(rawText: string): Promise<HabitSchedulerResult> {
     const text = rawText.trim();
     if (!text) return { status: 'empty' };
@@ -420,13 +546,37 @@ export class HabitScheduler {
     }
 
     let payload: unknown;
+    let responseText = '';
     try {
-      payload = await response.json();
+      if (typeof response.text === 'function') {
+        responseText = await response.text();
+        try {
+          payload = JSON.parse(responseText);
+        } catch {
+          payload = responseText;
+        }
+      } else {
+        payload = await response.json();
+      }
     } catch {
       this.busy = false;
+      if (!response.ok) {
+        return { status: 'error', kind: 'backend', error: `The scheduler returned HTTP ${response.status}.`, logs: [] };
+      }
       return { status: 'error', kind: 'parse', error: `Unexpected response from the scheduler (HTTP ${response.status}).`, logs: [] };
     }
     this.busy = false;
+    if (!response.ok && typeof payload === 'string' && payload.trim()) {
+      return {
+        status: 'error',
+        kind: 'backend',
+        error: `The scheduler rejected the request (HTTP ${response.status}): ${payload.trim()}`,
+        logs: [],
+      };
+    }
+    if (response.ok && typeof payload === 'string' && payload.trim()) {
+      return { status: 'question', reply: payload.trim(), logs: [] };
+    }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return { status: 'error', kind: 'parse', error: 'The scheduler returned an invalid response. Please try again.', logs: [] };
     }
@@ -436,15 +586,14 @@ export class HabitScheduler {
       return {
         status: 'error',
         kind: 'backend',
-        error: result.error
-          ? `The scheduler rejected the request (HTTP ${response.status}): ${result.error}`
-          : `The scheduler returned HTTP ${response.status}.`,
+        error: `The scheduler rejected the request (HTTP ${response.status}): ${responseError(result, responseText || payload)}`,
         logs: result.logs || [],
       };
     }
 
     const logs = result.logs || [];
-    if (result.reply && !result.data) {
+    const backendReply = responseMessage(result);
+    if (backendReply && !result.data) {
       this.pending = result.needs_input && result.pending ? result.pending : null;
       const categories = mentionedCategories(text, previousConfig);
       if (categories.size) this.pendingCategories = categories;
@@ -459,28 +608,39 @@ export class HabitScheduler {
         this.pendingActiveDays = null;
         this.pendingText = '';
       }
-      return { status: 'question', reply: result.reply, logs };
+      return { status: 'question', reply: backendReply, logs };
     }
     if (!result.data || typeof result.data !== 'object' || Array.isArray(result.data)) {
       return { status: 'error', kind: 'parse', error: 'The scheduler did not return a habit schedule. Please try again.', logs };
     }
-    this.pending = result.needs_input && result.reply && result.pending ? result.pending : null;
+    this.pending = result.needs_input && backendReply && result.pending ? result.pending : null;
     const intentText = `${this.pendingText} ${text}`.trim();
     const currentIntent = mentionedCategories(text, previousConfig);
     const mentioned = currentIntent.size ? currentIntent : this.pendingCategories;
     const activeDays = requestedActiveDays(text) ?? this.pendingActiveDays;
-    const beforeApply = changedCategories(previousConfig, result.data);
+    let schedulerConfig: unknown = removeUnrequestedMedicationTemplate(result.data, intentText);
+    const responseChangedCategories = changedCategories(previousConfig, schedulerConfig);
+    if (mentioned.has('meds') || responseChangedCategories.includes('meds')) {
+      schedulerConfig = applyMedicationSummaryDays(
+        schedulerConfig,
+        [
+          ...(Array.isArray(result.summary) ? result.summary : []),
+          ...(backendReply ? [backendReply] : []),
+        ],
+      );
+    }
+    const beforeApply = changedCategories(previousConfig, schedulerConfig);
     const dayTarget = mentioned.values().next().value
       ?? (beforeApply.includes('custom') ? 'custom' : null);
     this.config = activeDays && dayTarget
-      ? configForDays(result.data, dayTarget, activeDays, previousConfig, intentText)
-      : result.data;
+      ? configForDays(schedulerConfig, dayTarget, activeDays, previousConfig, intentText)
+      : schedulerConfig;
     const requestedDays = requestedStreakDays(text) ?? this.pendingStreakDays;
     const changed = changedCategories(previousConfig, this.config);
     const selectedCategories = mentioned.size
       ? changed.filter((category) => mentioned.has(category))
       : changed.filter((category) => category === 'custom');
-    const stillAsking = Boolean(result.needs_input && result.reply);
+    const stillAsking = Boolean(result.needs_input && backendReply);
     const rawHabitChanges = diffHabits(previousHabits, getHabits(this.config));
     const habitChanges = selectedCategories.includes('custom')
       ? changesForRequestedCustomHabit(rawHabitChanges, intentText)
@@ -507,7 +667,7 @@ export class HabitScheduler {
       : finalChanges;
     return {
       status: stillAsking ? 'partial' : 'scheduled',
-      reply: stillAsking ? result.reply ?? null : null,
+      reply: backendReply,
       configuration: this.config,
       habits,
       changes: appliedChanges,

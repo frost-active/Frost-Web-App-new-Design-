@@ -164,6 +164,193 @@ test('applies requested weekdays and exact streak to the returned preset configu
   assert.equal(result.requestedStreakDays, 14);
 });
 
+test('keeps medication active days aligned with the scheduler summary for the named medicine', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.reminders.medication.enabled = true;
+  updated.reminders.medication.medicines = [
+    { id: 'med_001', label: 'Vitamin B', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['mon', 'sun'], doses: [{ h: 18, m: 0 }] },
+    { id: 'med_002', label: 'Vitamin C', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['tue'], doses: [{ h: 9, m: 0 }] },
+  ];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: updated,
+        reply: "Medication 'Vitamin B': 6:00 PM · Mon, Wed, Sun · 31 Oct 2026 → 20 Dec 2026",
+      }),
+    }),
+  });
+
+  const result = await scheduler.send('Update medication Vitamin B');
+  assert.equal(result.status, 'scheduled');
+  assert.deepEqual(result.configuration.reminders.medication.medicines[0].days, ['mon', 'wed', 'sun']);
+  assert.deepEqual(result.configuration.reminders.medication.medicines[1].days, ['tue']);
+  assert.deepEqual(result.changedCategories, ['meds']);
+});
+
+test('does not seed or apply the default Take Pill medication when adding a named medicine', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.reminders.medication.enabled = true;
+  updated.reminders.medication.medicines = [
+    { ...structuredClone(defaultConfig.reminders.medication.medicines[0]) },
+    { id: 'med_002', label: 'Vitamin B', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['mon', 'wed', 'sun'], doses: [{ h: 20, m: 0 }] },
+  ];
+  let requestBody;
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: updated, summary: ["Medication 'Vitamin B': 8:00 PM · Mon, Wed, Sun · 31 Oct 2026 → 20 Dec 2026"] }),
+      };
+    },
+  });
+
+  const result = await scheduler.send('Add medication named Vitamin B on Monday, Wednesday and Sunday');
+  assert.equal(requestBody.current_config.reminders.medication.enabled, false);
+  assert.deepEqual(requestBody.current_config.reminders.medication.medicines, []);
+  assert.equal(result.status, 'scheduled');
+  assert.deepEqual(
+    result.configuration.reminders.medication.medicines.map((medicine) => medicine.label),
+    ['Vitamin B'],
+  );
+  assert.deepEqual(result.configuration.reminders.medication.medicines[0].days, ['mon', 'wed', 'sun']);
+});
+
+test('keeps Take Pill when the user explicitly requests that medication', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.reminders.medication.enabled = true;
+  updated.reminders.medication.medicines = [
+    { id: 'med_001', label: 'Take Pill', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['mon'], doses: [{ h: 10, m: 0 }] },
+    { id: 'med_002', label: 'Vitamin B', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['wed'], doses: [{ h: 20, m: 0 }] },
+  ];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: updated }),
+    }),
+  });
+
+  const result = await scheduler.send('Add Take Pill and Vitamin B');
+  assert.deepEqual(
+    result.configuration.reminders.medication.medicines.map((medicine) => medicine.label),
+    ['Take Pill', 'Vitamin B'],
+  );
+});
+
+test('preserves every requested medication weekday when the prompt contains a small weekday typo', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.reminders.medication.enabled = true;
+  updated.reminders.medication.medicines = [
+    { id: 'med_001', label: 'Vitamin B', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['mon', 'sun'], doses: [{ h: 20, m: 0 }] },
+  ];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: updated,
+        reply: "Medication 'Vitamin B': 8:00 PM · Mon, Wed, Sun · 31 Oct 2026 → 20 Dec 2026",
+      }),
+    }),
+  });
+
+  const result = await scheduler.send('Add medication named Vitamin B only on Monday, wednesdat and Sunday till 20 dec 2026');
+  assert.equal(result.status, 'scheduled');
+  assert.deepEqual(result.requestedActiveDays, ['mon', 'wed', 'sun']);
+  assert.deepEqual(result.configuration.reminders.medication.medicines[0].days, ['mon', 'wed', 'sun']);
+});
+
+test('returns successful backend replies alongside the configured Pomodoro schedule', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.pomodoro.cycles = 4;
+  const replies = [
+    {
+      data: updated,
+      reply: 'Pomodoro is configured for 4 cycles.',
+      summary: ['Pomodoro: 9:00 AM · 4 cycles'],
+      notes: ['Your existing focus duration was preserved.'],
+      invalid: [{ reason: 'One requested time was outside the active window.' }],
+    },
+    { data: updated, message: 'Your Pomodoro schedule was updated successfully.' },
+  ];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => replies.shift(),
+    }),
+  });
+
+  const replyResponse = await scheduler.send('Pomodoro for 4 cycles');
+  assert.equal(replyResponse.status, 'scheduled');
+  assert.equal(replyResponse.reply, 'Pomodoro is configured for 4 cycles.');
+  assert.deepEqual(replyResponse.summary, ['Pomodoro: 9:00 AM · 4 cycles']);
+  assert.deepEqual(replyResponse.notes, ['Your existing focus duration was preserved.']);
+  assert.deepEqual(replyResponse.invalid, ['One requested time was outside the active window.']);
+  assert.deepEqual(replyResponse.configuration.pomodoro.cycles, 4);
+
+  const messageResponse = await scheduler.send('Set Pomodoro for 4 cycles');
+  assert.equal(messageResponse.status, 'scheduled');
+  assert.equal(messageResponse.reply, 'Your Pomodoro schedule was updated successfully.');
+});
+
+test('uses the latest app schedule as the scheduler context', async () => {
+  const currentConfig = structuredClone(defaultConfig);
+  currentConfig.reminders.walk.enabled = true;
+  const requests = [];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ reply: 'What time should the walk reminder be?', needs_input: true, pending: { kind: 'time' } }),
+      };
+    },
+  });
+  scheduler.setConfiguration(currentConfig);
+
+  const result = await scheduler.send('Add a walk reminder');
+  assert.equal(result.status, 'question');
+  assert.deepEqual(requests[0].current_config, currentConfig);
+  assert.equal(requests[0].pending, undefined);
+});
+
+test('explicit medication weekdays override the summary and only update the named medicine', async () => {
+  const updated = structuredClone(defaultConfig);
+  updated.reminders.medication.enabled = true;
+  updated.reminders.medication.medicines = [
+    { id: 'med_001', label: 'Vitamin B', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['mon', 'sun'], doses: [{ h: 18, m: 0 }] },
+    { id: 'med_002', label: 'Vitamin C', enabled: true, start: '2026-10-31', end: '2026-12-20', days: ['tue'], doses: [{ h: 9, m: 0 }] },
+  ];
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: updated,
+        summary: ["Medication 'Vitamin B': 6:00 PM · Mon, Wed, Sun · 31 Oct 2026 → 20 Dec 2026"],
+      }),
+    }),
+  });
+
+  const result = await scheduler.send('Set medication Vitamin B active days Monday and Friday');
+  assert.equal(result.status, 'scheduled');
+  assert.deepEqual(result.configuration.reminders.medication.medicines[0].days, ['mon', 'fri']);
+  assert.deepEqual(result.configuration.reminders.medication.medicines[1].days, ['tue']);
+});
+
 test('applies selected active days to only the new custom habit', async () => {
   const existing = structuredClone(defaultConfig);
   existing.reminders.custom.enabled = true;
@@ -374,12 +561,63 @@ test('reports scheduler HTTP failures as backend errors with their status code',
     fetchImpl: async () => ({
       ok: false,
       status: 400,
-      json: async () => ({ error: 'Bad request' }),
+      json: async () => ({ error: 'Bad request', message: 'Please provide a valid start time.' }),
     }),
   });
 
   const result = await scheduler.send('Add a habit');
   assert.equal(result.status, 'error');
   assert.equal(result.kind, 'backend');
-  assert.match(result.error, /HTTP 400.*Bad request/);
+  assert.match(result.error, /HTTP 400[\s\S]*Bad request/);
+  assert.match(result.error, /Please provide a valid start time/);
+});
+
+test('displays the complete plain-text scheduler error response', async () => {
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      text: async () => "The scheduler could not find the required 'start' field. Try adding a start time.",
+    }),
+  });
+
+  const result = await scheduler.send('Add Pomodoro 23 mins focus 5 mins break for 4 cycles');
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /HTTP 400/);
+  assert.match(result.error, /required 'start' field/);
+  assert.match(result.error, /Try adding a start time/);
+});
+
+test('displays a successful plain-text scheduler response as a chat reply', async () => {
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => 'Your schedule is ready.',
+    }),
+  });
+
+  const result = await scheduler.send('What is in my schedule?');
+  assert.deepEqual(result, {
+    status: 'question',
+    reply: 'Your schedule is ready.',
+    logs: [],
+  });
+});
+
+test('displays the backend response even when the error payload omits an error field', async () => {
+  const scheduler = new HabitScheduler({
+    apiUrl: 'https://scheduler.test/parse',
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ message: 'The Pomodoro start time is missing.' }),
+    }),
+  });
+
+  const result = await scheduler.send('Add Pomodoro 23 mins focus 5 mins break for 4 cycles');
+  assert.equal(result.status, 'error');
+  assert.match(result.error, /The Pomodoro start time is missing/);
 });

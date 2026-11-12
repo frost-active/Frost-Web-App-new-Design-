@@ -2455,6 +2455,7 @@ async function auraAsk(text){
   if(auraBusy||!text.trim())return; auraBusy=true; document.getElementById('auraSend').disabled=true;
   auraAdd('user',text); const think=auraAdd('aura','Aura is thinking…','think');
   try{
+    auraScheduler.setConfiguration(toDeviceJSON());
     const result=await auraScheduler.send(text);
     if(result.status==='empty')return;
     if(result.status==='error'){
@@ -2478,11 +2479,19 @@ async function auraAsk(text){
       window.dispatchEvent(new CustomEvent('frost-ai-habit-configure',{detail:{habit}}));
       applied++;
     });
-    const details=[...result.notes,...result.invalid].filter(Boolean).join(' ');
-    const reply=result.reply || result.summary.join(' ') || (applied
+    const responseLines=[];
+    const addResponseLine=line=>{
+      const value=String(line||'').trim();
+      if(value&&!responseLines.includes(value))responseLines.push(value);
+    };
+    addResponseLine(result.reply);
+    result.summary.forEach(addResponseLine);
+    result.notes.forEach(note=>addResponseLine(`Note: ${note}`));
+    result.invalid.forEach(reason=>addResponseLine(`Not scheduled: ${reason}`));
+    if(!responseLines.length)responseLines.push(applied
       ? `Updated ${applied} habit${applied===1?'':'s'} in your schedule. Review the circle and editor, then use Sync Now when you're ready.`
       : 'I could not find a habit change in that request. Please describe the habit, time, active days, and streak length.');
-    auraAdd('aura',details?`${reply} ${details}`:reply);
+    auraAdd('aura',responseLines.join('\n'));
   }catch(error){
     auraAdd('aura',error instanceof Error?error.message:'The habit could not be configured.');
   }finally{
