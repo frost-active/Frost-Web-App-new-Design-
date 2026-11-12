@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useState } from 'react';
 import { collection, doc, getDocs, onSnapshot, query, runTransaction, serverTimestamp, Timestamp, where } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { firebaseDb } from '../firebase';
@@ -33,68 +32,17 @@ export default function DeviceBinding({ user, mode = 'home', onStateChange }: Pr
   const [state, setState] = useState<BindingState>('idle');
   const [message, setMessage] = useState('');
   const [bindingBusy, setBindingBusy] = useState(false);
-  const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const [bindingPromptDismissed, setBindingPromptDismissed] = useState(false);
-  const bindButtonRef = useRef<HTMLButtonElement>(null);
-  const bindingModalRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const handleConnected = (event: Event) => {
       const nextMac = (event as CustomEvent<{ macAddress: string }>).detail?.macAddress;
-      if (nextMac) {
-        setMacAddress(nextMac);
-        setState('loading');
-        setMessage('');
-        setIsDeviceConnected(true);
-        setBindingPromptDismissed(false);
-      }
+      if (nextMac) setMacAddress(nextMac);
     };
-    const handleDisconnected = () => {
-      setMacAddress('');
-      setIsDeviceConnected(false);
-    };
+    const handleDisconnected = () => { setMacAddress(''); };
     window.addEventListener('frost-device-mac', handleConnected);
     window.addEventListener('frost-device-disconnected', handleDisconnected);
     return () => { window.removeEventListener('frost-device-mac', handleConnected); window.removeEventListener('frost-device-disconnected', handleDisconnected); };
   }, []);
-
-  const isBindingPromptOpen = isDeviceConnected && state === 'unbound' && !bindingPromptDismissed;
-
-  useEffect(() => {
-    if (!isBindingPromptOpen) return;
-
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    bindButtonRef.current?.focus();
-    const handleModalKeys = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setBindingPromptDismissed(true);
-        return;
-      }
-      if (event.key !== 'Tab') return;
-
-      const focusableElements = bindingModalRef.current?.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (!focusableElements?.length) {
-        event.preventDefault();
-        return;
-      }
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-      if (event.shiftKey && (document.activeElement === firstElement || !bindingModalRef.current?.contains(document.activeElement))) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && (document.activeElement === lastElement || !bindingModalRef.current?.contains(document.activeElement))) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    };
-    document.addEventListener('keydown', handleModalKeys);
-    return () => {
-      document.removeEventListener('keydown', handleModalKeys);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
-    };
-  }, [isBindingPromptOpen]);
 
   useEffect(() => {
     if (!user.uid) return;
@@ -190,23 +138,7 @@ export default function DeviceBinding({ user, mode = 'home', onStateChange }: Pr
   if (mode !== 'device') return null;
   if (state === 'loading') return <div className="binding-status">Checking binding…</div>;
   if (state === 'error') return <div className="binding-error" role="alert">{message}</div>;
-  if (state === 'unbound') return <>
-    {!isBindingPromptOpen && <div className="binding-card"><h2>Device Binding</h2><p>This FROST device is not bound to your account yet.</p><button className="btn pri" type="button" disabled={bindingBusy} onClick={bindDevice}>{bindingBusy ? 'Binding device…' : 'Bind Device'}</button>{message && <p className="binding-error" role="alert">{message}</p>}</div>}
-    {isBindingPromptOpen && createPortal(<div className="binding-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setBindingPromptDismissed(true); }}>
-      <section ref={bindingModalRef} className="binding-modal" role="dialog" aria-modal="true" aria-labelledby="bindingModalTitle" aria-describedby="bindingModalDescription">
-        <div className="binding-modal-heading">
-          <div>
-            <h2 id="bindingModalTitle">Connect your Frost device</h2>
-            <p id="bindingModalDescription">This device is ready to link with your account.</p>
-          </div>
-          <button className="binding-modal-close" type="button" onClick={() => setBindingPromptDismissed(true)} aria-label="Dismiss device binding prompt">×</button>
-        </div>
-        <button ref={bindButtonRef} className="btn pri binding-modal-bind" type="button" disabled={bindingBusy} onClick={bindDevice}>{bindingBusy ? 'Binding device…' : 'Bind Device'}</button>
-        <p className="binding-modal-note">Binding links this Frost device to your account for syncing.</p>
-        {message && <p className="binding-error" role="alert">{message}</p>}
-      </section>
-    </div>, document.body)}
-  </>;
+  if (state === 'unbound') return <div className="binding-card"><h2>Device Binding</h2><p>This FROST device is not bound to your account yet.</p><button className="btn pri" type="button" disabled={bindingBusy} onClick={bindDevice}>{bindingBusy ? 'Binding device…' : 'Bind Device'}</button>{message && <p className="binding-error" role="alert">{message}</p>}</div>;
   if (state === 'other') return <div className="binding-card" role="alert"><h2>Account mismatch</h2><p>This Frost device is linked to another account. Sign in with the registered account to sync.</p>{message && <small>{message}</small>}</div>;
   return <div className="binding-details"><span className="pill ok">Binding Status: Active</span><dl><div><dt>Device</dt><dd>FROST</dd></div><div><dt>MAC Address</dt><dd>{binding?.macAddress || macAddress}</dd></div><div><dt>Bound Account</dt><dd>{binding?.boundEmail}</dd></div><div><dt>Bound Date</dt><dd>{binding?.boundAt?.toDate().toLocaleDateString() || 'Pending'}</dd></div><div><dt>Bound Time</dt><dd>{binding?.boundAt?.toDate().toLocaleTimeString() || 'Pending'}</dd></div></dl></div>;
 }
