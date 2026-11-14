@@ -274,6 +274,12 @@
   .wifi-field input:focus{border-color:var(--sky);box-shadow:0 0 0 3px rgba(41,171,226,.15)}
   .wifi-modal-error{color:#ff8177;font-size:11px;margin:0}
   .wifi-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+  .bind-modal .wifi-modal-heading{margin-bottom:16px}
+  .bind-modal .wifi-modal-heading h2{margin:0}
+  .bind-modal-button{width:100%}
+  .bind-modal-description{margin:10px 0 0;color:var(--muted);font-size:11px;line-height:1.55;text-align:center}
+  .bind-modal .wifi-modal-error{margin-top:12px}
+  .bind-modal .wifi-modal-actions{margin-top:16px}
   .pill{font-size:10.5px;padding:3px 9px;border-radius:99px;border:1px solid var(--faint);color:var(--muted)}
   .pill.ok{border-color:rgba(93,202,165,.4);color:var(--mint)}
   .batt{width:44px;height:20px;border:1.5px solid var(--faint);border-radius:4px;position:relative;flex:none}
