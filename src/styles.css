@@ -82,8 +82,12 @@
   /* ---------- DEVICE BOTTLE CONTROLS ---------- */
   .device-bottle-controls{max-width:680px}
   .device-bottle-controls-lead{font-size:13px;color:var(--ink);margin:-4px 0 18px;line-height:1.5}
+  .device-bottle-controls-status{display:flex;align-items:center;gap:10px;min-height:28px;margin-bottom:12px;color:var(--muted);font-size:12px}
+  .device-bottle-controls-status strong{color:var(--mint);letter-spacing:.08em}
   .device-bottle-controls-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
   .device-bottle-controls-actions .btn{min-width:200px}
+  .device-bottle-controls-actions .btn:disabled{opacity:.55;cursor:not-allowed}
+  .device-bottle-controls-error{margin-top:12px;color:#f0b0a1;font-size:12px;line-height:1.45}
   .device-bottle-controls-help{color:var(--muted);font-size:11.5px;line-height:1.55;margin:14px 0 0;max-width:520px}
   /* ---------- DEVICE BINDING ---------- */
   #home-binding-root{position:relative;z-index:20}

@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { mountFrost } from './legacy';
 import HeaderControls from './components/HeaderControls';
 import DeviceFirmwareActions from './components/DeviceFirmwareActions';
-import DeviceBottleControls from './components/DeviceBottleControls';
+import DeviceBottleControls, { type BottleControlAction } from './components/DeviceBottleControls';
 import DeviceBinding from './components/DeviceBinding';
 import { ConfigureClockPanel, ConfigureSidePanel } from './pages/ConfigurePage';
 import ChallengesPage from './features/challenges/ChallengesPage';
@@ -104,9 +104,18 @@ export default function HomeScreen({ user }: { user: User }) {
     />,
   ), [dispatchQuickAction]);
 
+  const runBottleAction = useCallback((action: BottleControlAction) => new Promise<void>((resolve, reject) => {
+    window.dispatchEvent(new CustomEvent('frost-bottle-action', { detail: { ...action, resolve, reject } }));
+  }), []);
+
   const renderBottleControls = useCallback((deviceConnected: boolean) => bottleControlsRoot.current?.render(
-    <DeviceBottleControls isDeviceConnected={deviceConnected} />,
-  ), []);
+    <DeviceBottleControls
+      isDeviceConnected={deviceConnected}
+      uid={user.uid}
+      macAddress={macAddress}
+      onAction={runBottleAction}
+    />,
+  ), [user.uid, macAddress, runBottleAction]);
 
   useEffect(() => {
     const dashboard = dashboardRef.current;

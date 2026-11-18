@@ -4,6 +4,7 @@ import { subscribeStoredFirmwareInfo, syncFirmwareInfoToFirestore, type DeviceFi
 import { defaultConfig } from './config/defaultConfig';
 import { reminderDefinitions } from './reminders';
 import { ensureDeviceBindingMatchesUser, getSavedDeviceConfig, saveDailyGoal, saveDeviceConfig, saveDeviceName, saveDndStatus } from './DeviceConfigSync';
+import { saveDeviceBottleSettings } from './DeviceBottleSync';
 import { stableStringify, syncedConfigToModel } from './config/syncedConfig';
 import { subscribeDeviceStatistics, syncDeviceStatistics, type DeviceStatistics } from './StatisticsSync';
 import { localDateISO, withCurrentSyncStartDates } from './utils/deviceSyncDates';
@@ -2221,6 +2222,29 @@ async function runQuickCommand(command, successMessage){
     toast(successMessage||status);
   }catch(error){toast(error instanceof Error?error.message:'Device command failed');}
 }
+window.addEventListener('frost-bottle-action',event=>{
+  const detail=event.detail;
+  void (async()=>{
+    if(!bleClient?.isConnected)throw new Error('Connect a FROST Aura device first');
+    if(!deviceMac||!authenticatedUser?.uid)throw new Error('Connect and bind your FROST Aura to your account first');
+    const ownershipCheck=await ensureDeviceBindingMatchesUser(deviceMac,authenticatedUser.uid);
+    if(!ownershipCheck.allowed)throw new Error(ownershipCheck.message);
+
+    const isCalibration=detail.type==='calibrate';
+    const enabled=isCalibration||Boolean(detail.enabled);
+    const status=await bleClient.sendAndRead(enabled?'BOTTLE:LEARN_START':'BOTTLE:LEARN_CANCEL');
+    if(status.startsWith('ERROR:'))throw new Error(status);
+
+    await saveDeviceBottleSettings(authenticatedUser.uid,deviceMac,isCalibration
+      ? {bottleCalibrationStatus:'calibrated',bottleName:'IN USE',bottleLearningEnabled:true}
+      : {bottleLearningEnabled:enabled});
+    toast(isCalibration?'Bottle calibrated and in use':`Water consumption learning ${enabled?'enabled':'disabled'}`);
+  })().then(()=>detail.resolve(),error=>{
+    const message=error instanceof Error?error.message:'The bottle command failed';
+    detail.reject(error);
+    toast(message);
+  });
+});
 window.addEventListener('frost-quick-action',event=>{
   const action=event.detail;
   if(action.type==='volume')runQuickCommand(`SET VOLUME ${action.value}`,`Volume set to ${action.value}`);
